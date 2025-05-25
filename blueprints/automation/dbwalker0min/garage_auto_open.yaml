@@ -4,7 +4,6 @@ blueprint:
     Opens the garage when a person arrives home, if they've been away for a set time and the enable boolean is on.
     Also closes the garage when the enable boolean is turned on manually.
   domain: automation
-  version: "1.0.0"
   input:
     person_entity:
       name: Person
