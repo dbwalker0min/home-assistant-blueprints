@@ -1,0 +1,9 @@
+{
+  "name": "Garage Auto Open Blueprint",
+  "content_in_root": false,
+  "render_readme": true,
+  "description": "Open your garage when arriving home, with safety timeout and manual enable/disable.",
+  "domain": null,
+  "homeassistant": "2023.0.0",
+  "category": "automation"
+}
