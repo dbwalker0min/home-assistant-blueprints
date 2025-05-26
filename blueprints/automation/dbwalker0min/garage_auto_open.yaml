@@ -59,7 +59,8 @@ action:
             state: 'on'
           - condition: template
             value_template: >
-              {{ (as_timestamp(trigger.to_state.last_changed) - as_timestamp(trigger.from_state.last_changed)) > (min_away_seconds | int) }}
+              {{ (as_timestamp(trigger.to_state.last_changed) -
+                  as_timestamp(trigger.from_state.last_changed)) > (inputs.min_away_seconds | int) }}
         sequence:
           - service: cover.open_cover
             target:
@@ -68,18 +69,8 @@ action:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: "{{ turn_off_boolean }}"
+                    value_template: "{{ inputs.turn_off_boolean }}"
                 sequence:
                   - service: input_boolean.turn_off
                     target:
                       entity_id: !input enable_boolean
-
-      - conditions:
-          - condition: trigger
-            id: enable
-        sequence:
-          - service: cover.close_cover
-            target:
-              entity_id: !input garage_cover
-
-mode: single
