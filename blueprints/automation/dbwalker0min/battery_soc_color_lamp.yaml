@@ -8,17 +8,16 @@ blueprint:
     soc_sensor:
       name: Battery SOC sensor (0–100)
       description: A sensor or number entity that reports battery SoC in percent.
-      selector: 
+      selector:
         entity:
-          domain: [sensor, number]
-          device_class: battery
+          domain: [sensor, input_number]
     target_light:
       name: Target color bulb
       selector: { target: { entity: { domain: light } } }
     brightness:
       name: Brightness
       description: Brightness of light (0-1).
-      default: 60
+      default: 0.8
       selector: { number: { min: 0, max: 1, step: 0.05, mode: slider } }
     update_interval_sec:
       name: Update interval (seconds)
@@ -33,16 +32,20 @@ trigger:
     entity_id: !input soc_sensor
   - platform: time_pattern
     seconds: !input update_interval_sec
+  - platform: homeassistant
+    event: start
 
 variables:
-  soc: >-
-    {{ states(!input soc_sensor) | float(0) }}
+  soc_device: !input soc_sensor
+  b: !input brightness
+  soc_raw: "{{ states(soc_device) | float(0) }}"
+  soc: "{{ [0, [soc_raw, 100]|min]|max }}"
   # Hue 0..120 (red→green). HA expects degrees in HS color space.
   hue: "{{ (soc * 1.2) | round(0) }}"
   # Keep saturation pegged for clear colors
   sat: 100
   # Brightness scales linearly between min_brightness and max_brightness.
-  brightness: !input brightness
+  brightness: "{{ b | float * 255 | round(0)}}"
 
 condition: []
 
