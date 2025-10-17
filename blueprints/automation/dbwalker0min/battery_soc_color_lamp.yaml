@@ -1,0 +1,54 @@
+blueprint:
+  name: Battery SOC → Bulb Color (Red→Green)
+  description: >
+    Sets a color bulb based on battery state of charge. 0% = red, 100% = green,
+    with a smooth gradient in between. Optional brightness scaling and safety floors.
+  domain: automation
+  input:
+    soc_sensor:
+      name: Battery SOC sensor (0–100)
+      description: A sensor or number entity that reports battery SoC in percent.
+      selector: 
+        entity:
+          domain: [sensor, number]
+          device_class: battery
+    target_light:
+      name: Target color bulb
+      selector: { target: { entity: { domain: light } } }
+    brightness:
+      name: Brightness
+      description: Brightness of light (0-1).
+      default: 60
+      selector: { number: { min: 0, max: 1, step: 0.05, mode: slider } }
+    update_interval_sec:
+      name: Update interval (seconds)
+      description: In addition to state changes, refresh on this cadence.
+      default: 30
+      selector: { number: { min: 5, max: 600, step: 5, mode: slider } }
+
+mode: restart
+
+trigger:
+  - platform: state
+    entity_id: !input soc_sensor
+  - platform: time_pattern
+    seconds: !input update_interval_sec
+
+variables:
+  soc: >-
+    {{ states(!input soc_sensor) | float(0) }}
+  # Hue 0..120 (red→green). HA expects degrees in HS color space.
+  hue: "{{ (soc * 1.2) | round(0) }}"
+  # Keep saturation pegged for clear colors
+  sat: 100
+  # Brightness scales linearly between min_brightness and max_brightness.
+  brightness: !input brightness
+
+condition: []
+
+action:
+  - service: light.turn_on
+    target: !input target_light
+    data:
+      hs_color: ["{{ hue }}", "{{ sat }}"]
+      brightness: "{{ brightness }}"
