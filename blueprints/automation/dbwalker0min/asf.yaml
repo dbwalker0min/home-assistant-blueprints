@@ -1,0 +1,68 @@
+blueprint:
+  name: Battery SOC → Bulb Color (Red→Green)
+  description: >
+    Sets a color bulb based on battery state of charge. 0% = red, 100% = green,
+    with a smooth gradient in between. Optional brightness scaling and safety floors.
+  domain: automation
+  input:
+    soc_sensor:
+      name: Battery SOC sensor (0-100%)
+      description: A sensor or number entity that reports battery SoC in percent.
+      selector:
+        entity:
+          domain: [sensor, input_number]
+    target_light:
+      name: Target color bulb
+      selector: { target: { entity: { domain: light } } }
+    brightness:
+      name: Brightness
+      description: Brightness of light (0-100%).
+      default: 80
+      selector: 
+        entity:
+          domain: input_number
+    update_interval_sec:
+      name: Update interval (seconds)
+      description: In addition to state changes, refresh on this cadence.
+      default: 30
+      selector: { number: { min: 5, max: 600, step: 5, mode: slider } }
+
+mode: restart
+
+variables:
+  # get the input control names
+  soc_sensor: !input soc_sensor
+  brightness_control: !input brightness
+
+  turn_on_data:
+    # it expects a brightness value 0..255
+    brightness: |
+      {% set brightness_value = states(brightness_control) | float(0) %}
+      {% set brightness_limited = min(100, max(0, brightness_value)) %}
+      {{ brightness_limited * 255 / 100 | round(0) }}
+
+    # the hue is a color from red (0) to green (120)
+    # the saturation is pegged to 100%
+    hs_color: 
+      - |
+        {% set soc_raw = float(states(soc_sensor)) or 0.0 %}
+        {% set soc_raw = states(soc_sensor) | float(0) %}
+        {% set soc_limited = min(100, max(0, soc_raw)) %}
+        {% set hue = (120 * soc_limited / 100) %}
+        {{ hue }}
+      - 100
+
+trigger:
+  - platform: state
+    entity_id: !input soc_sensor
+  - platform: time_pattern
+    seconds: !input update_interval_sec
+  - platform: homeassistant
+    event: start
+
+condition: []
+
+action:
+  - service: light.turn_on
+    target: !input target_light
+    data: turn_on_data

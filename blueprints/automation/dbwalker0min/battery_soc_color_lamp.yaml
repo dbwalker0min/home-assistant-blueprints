@@ -1,24 +1,40 @@
 blueprint:
-  name: Battery SOC → Bulb Color (Red→Green)
+  name: Battery SOC Controlled Lamp
   description: >
     Sets a color bulb based on battery state of charge. 0% = red, 100% = green,
-    with a smooth gradient in between. Optional brightness scaling and safety floors.
+    with a smooth gradient in between. Brightness is controllable.
   domain: automation
   input:
     soc_sensor:
-      name: Battery SOC sensor (0–100)
+      name: Battery SOC sensor (0-100%)
       description: A sensor or number entity that reports battery SoC in percent.
       selector:
         entity:
-          domain: [sensor, input_number]
+          multiple: false
+          filter:
+            - domain: sensor
+              device_class: battery
     target_light:
       name: Target color bulb
-      selector: { target: { entity: { domain: light } } }
-    brightness:
-      name: Brightness
-      description: Brightness of light (0-1).
-      default: 0.8
-      selector: { number: { min: 0, max: 1, step: 0.05, mode: slider } }
+      selector:
+        target:
+          entity:
+            domain: light
+    brightness_control:
+      name: Brightness Control
+      selector: 
+        entity:
+          domain: input_number
+    hue_gamma:
+      name: Hue exponent (gamma)
+      description: Curve steepness for hue mapping; 1.0 = linear.
+      selector:
+        number:
+          min: 0.5
+          max: 3
+          step: 0.1
+          mode: slider
+      default: 1.4
     update_interval_sec:
       name: Update interval (seconds)
       description: In addition to state changes, refresh on this cadence.
@@ -27,23 +43,38 @@ blueprint:
 
 mode: restart
 
+variables:
+  # get the input control names
+  soc_sensor: !input soc_sensor
+  brightness_control: !input brightness_control
+  hue_gamma: !input hue_gamma
+
+  # it expects a brightness value 0..255
+  brightness: |
+    {% set brightness_value = states(brightness_control) | float(0) %}
+    {% set brightness_limited = min(100, max(0, brightness_value)) %}
+    {% set brightness = brightness_limited * 255 / 100 | round(0) | int %}
+    {{ brightness }}
+
+  # the hue is a color from red (0) to green (120)
+  # the saturation is pegged to 100%
+  hue: |
+    {% set soc_raw = states(soc_sensor) | float(0) %}
+    {% set soc_limited = min(100, max(0, soc_raw)) %}
+    {% set hue = ((360 - 240 * (soc_limited / 100)**hue_gamma)) % 360 %}
+    {{ hue }}
+
+  sat: 100
+
 trigger:
   - platform: state
     entity_id: !input soc_sensor
+  - platform: state
+    entity_id: !input brightness_control
   - platform: time_pattern
     seconds: !input update_interval_sec
   - platform: homeassistant
     event: start
-
-variables:
-  soc_device: !input soc_sensor
-  b: !input brightness           # 0..1 from the slider
-  soc_raw: "{{ states(soc_device) | float(0) }}"
-  soc: "{{ [0, [soc_raw, 100] | min] | max }}"
-  hue: "{{ (soc * 1.2) | round(0) }}"
-  sat: 100
-  # Convert 0..1 -> 0..255 and clamp just in case
-  brightness_255: "{{ ([0, (b | float * 255) | round(0)] | max, 255) | min }}"
 
 condition: []
 
