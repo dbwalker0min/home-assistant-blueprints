@@ -37,15 +37,13 @@ trigger:
 
 variables:
   soc_device: !input soc_sensor
-  b: !input brightness
+  b: !input brightness           # 0..1 from the slider
   soc_raw: "{{ states(soc_device) | float(0) }}"
-  soc: "{{ [0, [soc_raw, 100]|min]|max }}"
-  # Hue 0..120 (red→green). HA expects degrees in HS color space.
+  soc: "{{ [0, [soc_raw, 100] | min] | max }}"
   hue: "{{ (soc * 1.2) | round(0) }}"
-  # Keep saturation pegged for clear colors
   sat: 100
-  # Brightness scales linearly between min_brightness and max_brightness.
-  brightness: "{{ b | float * 255 | round(0)}}"
+  # Convert 0..1 -> 0..255 and clamp just in case
+  brightness_255: "{{ ([0, (b | float * 255) | round(0)] | max, 255) | min }}"
 
 condition: []
 
