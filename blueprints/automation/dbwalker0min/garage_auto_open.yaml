@@ -45,25 +45,27 @@ blueprint:
       selector:
         boolean:
 
-trigger:
-  - platform: state
-    from: 'not_home'
-    to: 'home'
-    entity_id: !input person_entity
-    id: arrival
-
-  - platform: state
-    from: 'off'
-    to: 'on'
-    entity_id: !input enable_boolean
-    id: enable
-
-condition: []
-
 variables:
   min_away_seconds: !input min_away_seconds
   garage_cover: !input garage_cover
   turn_off_boolean: !input turn_off_boolean
+  test_mode: !input test_mode
+  auto_close_on_enable: !input auto_close_on_enable
+
+triggers:
+  - trigger: state
+    from: "not_home"
+    to: "home"
+    entity_id: !input person_entity
+    id: arrival
+
+  - trigger: state
+    from: "off"
+    to: "on"
+    entity_id: !input enable_boolean
+    id: enable
+
+condition: []
 
 action:
   - choose:
@@ -72,31 +74,32 @@ action:
             id: arrival
           - condition: state
             entity_id: !input enable_boolean
-            state: 'on'
+            state: "on"
           - condition: template
             value_template: >
               {{ (as_timestamp(trigger.to_state.last_changed) -
                   as_timestamp(trigger.from_state.last_changed)) > (min_away_seconds | int) }}
         sequence:
+          - event: automation_log
+            event_data:
+              level: info
+              message: >
+                Arrival detected for {{ trigger.entity_id }} after being away for
+                {{ (as_timestamp(trigger.to_state.last_changed) -
+                    as_timestamp(trigger.from_state.last_changed)) | int }} seconds.
           - if:
-            - alias: "In test mode, log instead of opening"
-              condition: template
-              value_template: !input test_mode
+              - alias: "In test mode, don't actually open the garage"
+                condition: template
+                value_template: "{{ not test_mode }}"
             then:
-              - service: system_log.write
-                data:
-                  level: info
-                  message: >
-                    Test Mode: Would open garage cover {{ garage_cover }}
-            else:
               - service: cover.open_cover
                 target:
-                  entity_id: !input garage_cover
+                  entity_id: "{{ garage_cover }}"
               - delay: "00:00:05"
           - if:
-            - alias: "Turn off enable boolean after opening"
-              condition: template
-              value_template: "{{ turn_off_boolean }}"
+              - alias: "Turn off enable boolean after opening"
+                condition: template
+                value_template: "{{ turn_off_boolean }}"
             then:
               - service: input_boolean.turn_off
                 target:
@@ -105,19 +108,18 @@ action:
           - condition: trigger
             id: enable
           - condition: template
-            value_template: !input auto_close_on_enable
+            value_template: "{{ auto_close_on_enable }}"
         sequence:
+          - event: automation_log
+            event_data:
+              level: info
+              message: >
+                Enable boolean turned on; auto-closing garage door {{ garage_cover }}.
           - if:
-            - alias: "In test mode, log instead of closing"
-              condition: template
-              value_template: !input test_mode
+              - alias: "In test mode, don't actually close the garage"
+                condition: template
+                value_template: "{{ not test_mode }}"
             then:
-              - service: system_log.write 
-                data:
-                  level: info
-                  message: >
-                    Test Mode: Would close garage cover {{ garage_cover }}
-            else:
               - service: cover.close_cover
                 target:
-                  entity_id: !input garage_cover
+                  entity_id: "{{ garage_cover }}"
