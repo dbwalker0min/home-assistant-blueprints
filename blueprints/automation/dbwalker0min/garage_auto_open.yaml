@@ -33,6 +33,17 @@ blueprint:
       default: true
       selector:
         boolean:
+    auto_close_on_enable:
+      name: Auto-Close Garage on Enable?
+      default: false
+      selector:
+        boolean:
+    test_mode:
+      name: Test Mode
+      description: If on, the automation will log actions instead of performing them.
+      default: false
+      selector:
+        boolean:
 
 trigger:
   - platform: state
@@ -49,6 +60,11 @@ trigger:
 
 condition: []
 
+variables:
+  min_away_seconds: !input min_away_seconds
+  garage_cover: !input garage_cover
+  turn_off_boolean: !input turn_off_boolean
+
 action:
   - choose:
       - conditions:
@@ -60,17 +76,48 @@ action:
           - condition: template
             value_template: >
               {{ (as_timestamp(trigger.to_state.last_changed) -
-                  as_timestamp(trigger.from_state.last_changed)) > (!input min_away_seconds | int) }}
+                  as_timestamp(trigger.from_state.last_changed)) > (min_away_seconds | int) }}
         sequence:
-          - service: cover.open_cover
-            target:
-              entity_id: !input garage_cover
-          - delay: "00:00:05"
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ !input turn_off_boolean }}"
-                sequence:
-                  - service: input_boolean.turn_off
-                    target:
-                      entity_id: !input enable_boolean
+          - if:
+            - alias: "In test mode, log instead of opening"
+              condition: template
+              value_template: !input test_mode
+            then:
+              - service: system_log.write
+                data:
+                  level: info
+                  message: >
+                    Test Mode: Would open garage cover {{ garage_cover }}
+            else:
+              - service: cover.open_cover
+                target:
+                  entity_id: !input garage_cover
+              - delay: "00:00:05"
+          - if:
+            - alias: "Turn off enable boolean after opening"
+              condition: template
+              value_template: "{{ turn_off_boolean }}"
+            then:
+              - service: input_boolean.turn_off
+                target:
+                  entity_id: !input enable_boolean
+      - conditions:
+          - condition: trigger
+            id: enable
+          - condition: template
+            value_template: !input auto_close_on_enable
+        sequence:
+          - if:
+            - alias: "In test mode, log instead of closing"
+              condition: template
+              value_template: !input test_mode
+            then:
+              - service: system_log.write 
+                data:
+                  level: info
+                  message: >
+                    Test Mode: Would close garage cover {{ garage_cover }}
+            else:
+              - service: cover.close_cover
+                target:
+                  entity_id: !input garage_cover

@@ -1,0 +1,79 @@
+blueprint:
+  name: Log Event Collector
+  description: Collect and display system_log.write messages in an input_text helper.
+  domain: automation
+  input:
+    logger_name:
+      name: Logger name
+      description: Only include messages from this logger.
+      selector:
+        text:
+    min_level:
+      name: Minimum log level
+      description: Only collect messages at or above this level.
+      default: debug
+      selector:
+        select:
+          options:
+            - debug
+            - info
+            - warning
+            - error
+            - critical
+    text_helper:
+      name: Input Text Helper
+      selector:
+        entity:
+          domain: input_text
+    max_lines:
+      name: Max entries to keep
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 50
+          step: 1
+
+template:
+    variables:
+      wanted_logger: !input logger_name
+      min_level: !input min_level
+      max_items: !input max_lines
+      input_text_entity: !input text_helper
+
+    trigger:
+      - platform: event
+        event_type: system_log_event
+    sensor:
+      - name: Blueprint Log
+        unique_id: blueprint_log
+        # Keep the state short and always valid
+        state: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+        attributes:
+          html: >-
+            {# --- config --- #}
+            {% set min_level     = 'info' %}                  {# debug|info|warning|error|critical #}
+            {% set max_items     = 10 %}                      {# keep last N entries #}
+            {% set sep           = '\n' %}                    {# separator between items #}
+
+            {# --- helpers --- #}
+            {% set order = {'debug':0,'info':1,'warning':2,'error':3,'critical':4} %}
+            {% set prev  = state_attr('sensor.blueprint_log','html') | default('', true) %}
+            {% set match = (trigger.event.data and
+                            trigger.event.data.name == wanted_logger and
+                            order.get(trigger.event.data.level|lower, -1) >= order[min_level]) %}
+
+            {% if match %}
+              {# make one <ha-alert> line using timestamp as title, color from level #}
+              {% set sev = (trigger.event.data.level|lower in ['error','critical'])
+                           and 'error' or (trigger.event.data.level|lower == 'warning')
+                           and 'warning' or 'info' %}
+              {% set line = "<ha-alert severity='" ~ sev ~
+                            "' title='" ~ now().strftime('%Y-%m-%d %H:%M:%S') ~
+                            "'>" ~ (trigger.event.data.message | e) ~ "</ha-alert>" %}
+              {% set combined = (prev ~ sep ~ line) if prev else line %}
+              {% set parts = combined.split(sep) %}
+              {{ parts[-max_items:] | join(sep) }}
+            {% else %}
+              {{ prev }}
+            {% endif %}

@@ -1,5 +1,5 @@
 {
-  "name": "Garage Auto Open Blueprint",
+  "name": "Home Assistant Blueprints by dbwalker0min",
   "content_in_root": false,
   "render_readme": true,
   "description": "Open your garage when arriving home, with safety timeout and manual enable/disable.",

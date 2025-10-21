@@ -4,7 +4,7 @@
     {
       "label": "Deploy blueprint to Home Assistant",
       "type": "shell",
-      "command": "powershell -NoProfile -Command \"Get-Content '${file}' -Raw | ssh ha 'sudo -n mkdir -p /config/blueprints/automation/dbwalker0min && sudo -n tee /config/blueprints/automation/dbwalker0min/battery_soc_color_lamp.yaml >/dev/null && if [ -r ~/.ha_token ]; then TOKEN=$(cat ~/.ha_token); curl -fsS -X POST -H \\\"Authorization: Bearer $TOKEN\\\" -H \\\"Content-Type: application/json\\\" http://127.0.0.1:8123/api/services/automation/reload >/dev/null || sudo -n ha core restart; else sudo -n ha core restart; fi'\"",
+      "command": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/deploy-ha-blueprint.ps1 -Path '${file}'",
       "group": {
         "kind": "build",
         "isDefault": true

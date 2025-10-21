@@ -1,0 +1,50 @@
+- triggers:
+    - trigger: time_pattern
+      seconds: 10
+  sensor:
+    - name: Blueprint Log
+      unique_id: blueprint_log
+      # Keep the state short and always valid
+      state: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      attributes:
+        html: >-
+          {# --- config --- #}
+          {% set wanted_logger = 'blueprint.test' %}        {# change to yours #}
+          {% set min_level     = 'info' %}                  {# debug|info|warning|error|critical #}
+          {% set max_items     = 200 %}                     {# keep last N entries #}
+          {% set sep           = '\n' %}                    {# separator between items #}
+
+          {# --- helpers --- #}
+          {% set order = {'debug':0,'info':1,'warning':2,'error':3,'critical':4} %}
+          {% set prev  = state_attr('sensor.blueprint_log','html') | default('', true) %}
+          {% set match = (trigger.event.data and
+                          trigger.event.data.logger == wanted_logger and
+                          order.get(trigger.event.data.level|lower, -1) >= order[min_level]) %}
+
+          {% if match %}
+            {# make one <ha-alert> line using timestamp as title, color from level #}
+            {% set sev = (trigger.event.data.level|lower in ['error','critical'])
+                          and 'error' or (trigger.event.data.level|lower == 'warning')
+                          and 'warning' or 'info' %}
+            {% set line = "<ha-alert severity='" ~ sev ~
+                          "' title='" ~ now().strftime('%Y-%m-%d %H:%M:%S') ~
+                          "'>" ~ (trigger.event.data.message | e) ~ "</ha-alert>" %}
+            {% set combined = (prev ~ sep ~ line) if prev else line %}
+            {% set parts = combined.split(sep) %}
+            {{ parts[-max_items:] | join(sep) }}
+          {% else %}
+            {{ prev }}
+          {% endif %}
+        raw_event: "{{ trigger.event | tojson}}"
+- sensor:
+    - name: Template Sanity
+      state: "loaded"
+- triggers:
+    - trigger: time_pattern
+      seconds: 10
+
+  sensor:
+    - name: Blueprint Log 2
+      value: "loaded"
+      attributes:
+        raw_event: "{{ trigger.event | tojson}}"
