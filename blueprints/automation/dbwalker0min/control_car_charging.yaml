@@ -1,0 +1,91 @@
+blueprint:
+  name: Control Car Charging from Solar
+  description: >
+    Simple control of car charging based on battery state of charge.
+
+    Basically, this will enable car charging when the battery is above a certain SOC,
+    and disable it when it falls below another SOC.
+  domain: automation
+  input:
+    charge_enable_switch:
+      name: Charge Enable Switch
+      selector:
+        entity:
+          domain: switch
+    battery_soc_sensor:
+      name: Battery State of Charge Sensor
+      selector:
+        entity:
+          domain: sensor
+    enable_charge_level:
+      name: Enable Charge Level (SOC)
+      default: 75
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+    disable_charge_level:
+      name: Disable Charge Level (SOC)
+      default: 50
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 1
+    test_mode:
+      name: Test Mode
+      description: If on, the automation will log actions instead of performing them.
+      default: false
+      selector:
+        boolean:
+
+triggers:
+  - trigger: numeric_state
+    entity_id: !input battery_soc_sensor
+    above: !input enable_charge_level
+    id: enable_charging
+
+  - trigger: numeric_state
+    entity_id: !input battery_soc_sensor
+    below: !input disable_charge_level
+    id: disable_charging
+
+condition: []
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: enable_charging
+        sequence:
+          - event: automation_log
+            event_data:
+              level: info
+              message: >
+                Enable car charging.
+          - if:
+              - alias: "In test mode, don't actually change the charger state"
+                condition: template
+                value_template: "{{ not test_mode }}"
+            then:
+              - service: switch.turn_on
+                target:
+                  entity_id: !input charge_enable_switch
+      - conditions:
+          - condition: trigger
+            id: disable_charging
+        sequence:
+          - event: automation_log
+            event_data:
+              level: info
+              message: >
+                Disable car charging.
+          - if:
+              - alias: "In test mode, don't actually change the charger state"
+                condition: template
+                value_template: "{{ not test_mode }}"
+            then:
+              - service: switch.turn_off
+                target:
+                  entity_id: !input charge_enable_switch
