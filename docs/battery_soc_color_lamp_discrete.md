@@ -51,7 +51,7 @@ You can freely adjust thresholds and colors in the blueprint configuration.
 
 ## Blueprint Image
 
-![battery_soc_blueprint_image](C:\Users\dbwal\VSCode\HomeAssistant\garage-auto-open\docs\battery_soc_blueprint_image.png)
+![battery_soc_blueprint_image](battery_soc_blueprint_image.png)
 
 ## Source
 
