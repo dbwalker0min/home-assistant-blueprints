@@ -45,17 +45,16 @@ You can freely adjust thresholds and colors in the blueprint configuration.
   
 - **Update interval (seconds)**
   The automation is triggered every so often to keep the bulb color up-to-date.
-  
 
 ---
 
 ## Blueprint Image
 
-![battery_soc_blueprint_image](battery_soc_blueprint_image.png)
+![battery_soc_blueprint_image.png (1143×1085)](https://raw.githubusercontent.com/dbwalker0min/home-assistant-blueprints/refs/heads/main/docs/battery_soc_blueprint_image.png)
 
 ## Source
 
-The source for these automations are on GitHub [here]([dbwalker0min/home-assistant-blueprints: A Home Assistant Blueprint to automatically open the garage door when returning home](https://github.com/dbwalker0min/home-assistant-blueprints))
+The source for these automations is on GitHub [here]([dbwalker0min/home-assistant-blueprints: A Home Assistant Blueprint to automatically open the garage door when returning home](https://github.com/dbwalker0min/home-assistant-blueprints)).
 
 ## Questions
 
