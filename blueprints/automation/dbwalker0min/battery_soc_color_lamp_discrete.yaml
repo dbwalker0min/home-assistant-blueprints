@@ -1,8 +1,8 @@
 blueprint:
   name: Battery SOC Controlled Lamp (discrete colors)
   description: >
-    Sets a color bulb based on battery state of charge. 0% = red -> blue -> 100% = green,
-    with a smooth gradient in between. Brightness and gamma are controllable.
+    Sets a color bulb based on battery state of charge. The color of the bulb is set to various discrete colors
+    based on specified SOC thresholds. Brightness is also controllable.
   domain: automation
   input:
     soc_sensor:
@@ -85,6 +85,8 @@ mode: single
 variables:
   # get the input control names
   soc_sensor: !input soc_sensor
+  soc_raw: |
+    {{ states(soc_sensor) | float(-1) }}
   brightness_control: !input brightness_control
   color_map: !input color_map
 
@@ -99,7 +101,6 @@ variables:
   # the saturation is pegged to 100%
   color: |
     {# Clamp SoC #}
-    {% set soc_raw = states(soc_sensor) | float(0) %}
     {% set soc_limited = [0, [soc_raw, 100] | min] | max %}
 
     {# Ensure sorted ascending by soc_percent #}
@@ -127,7 +128,10 @@ triggers:
   - trigger: homeassistant
     event: start
 
-condition: []
+conditions:
+  - alias: "Valid SOC reading"
+    condition: template
+    value_template: "{{ soc_raw >= 0 and soc_raw <= 100 }}"
 
 action:
   sequence:

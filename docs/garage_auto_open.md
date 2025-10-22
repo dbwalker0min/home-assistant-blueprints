@@ -1,4 +1,4 @@
-# 🚗 Garage Auto Open Blueprint
+# Garage Auto Open Blueprint
 
 This Home Assistant blueprint opens your garage door automatically when a person arrives home — but only if they've been away for a configurable amount of time, and a toggle (`input_boolean`) is enabled.
 
