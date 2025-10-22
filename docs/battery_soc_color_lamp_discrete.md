@@ -4,6 +4,8 @@
 
 A simple Home Assistant blueprint that sets the color of a smart color-changing bulb based on the current battery state of charge (SoC). This makes it easy to glance at a light and know whether your home battery is low, mid, or full — ideal for Powerwall, solar, or any battery integration (though it would be a bit weird to use for your phone!).
 
+In my case, I'm connecting this up to a cute [desk lamp I found on Etsy](https://www.etsy.com/listing/1746498080/sci-fi-wasabi-custom-table-lamp-with?ref=user_profile&frs=1&pro=1) (I haven't gotten it yet :cry:).
+
 ##### Features
 
 - Discrete colors defined by user-configurable thresholds  
@@ -40,6 +42,9 @@ You can freely adjust thresholds and colors in the blueprint configuration.
   
 - **Color Map**  
   A mapping between the SOC level and the color used is provided. This is fully editable. The possible colors are: red, orange, yellow, green, blue, indigo, violet, lime, gold, and cyan. The entries in the color map don't need to be in any particular order. The default values correspond to the values above.
+  
+- **Update interval (seconds)**
+  The automation is triggered every so often to keep the bulb color up-to-date.
   
 
 ---
