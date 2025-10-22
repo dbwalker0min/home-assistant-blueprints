@@ -40,7 +40,7 @@ blueprint:
           soc_percent: 40
         - color: Yellow
           soc_percent: 60
-        - color: Blue
+        - color: Cyan
           soc_percent: 80
         - color: Green
           soc_percent: 100
