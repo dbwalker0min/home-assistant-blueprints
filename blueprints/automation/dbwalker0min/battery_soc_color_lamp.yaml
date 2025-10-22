@@ -1,8 +1,8 @@
 blueprint:
   name: Battery SOC Controlled Lamp
   description: >
-    Sets a color bulb based on battery state of charge. 0% = red, 100% = green,
-    with a smooth gradient in between. Brightness is controllable.
+    Sets a color bulb based on battery state of charge. 0% = red -> blue -> 100% = green,
+    with a smooth gradient in between. Brightness and gamma are controllable.
   domain: automation
   input:
     soc_sensor:
@@ -66,14 +66,14 @@ variables:
 
   sat: 100
 
-trigger:
-  - platform: state
+triggers:
+  - trigger: state
     entity_id: !input soc_sensor
-  - platform: state
+  - trigger: state
     entity_id: !input brightness_control
-  - platform: time_pattern
+  - trigger: time_pattern
     seconds: !input update_interval_sec
-  - platform: homeassistant
+  - trigger: homeassistant
     event: start
 
 condition: []

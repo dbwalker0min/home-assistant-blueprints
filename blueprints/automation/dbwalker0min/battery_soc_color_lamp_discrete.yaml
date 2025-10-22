@@ -1,0 +1,143 @@
+blueprint:
+  name: Battery SOC Controlled Lamp (discrete colors)
+  description: >
+    Sets a color bulb based on battery state of charge. 0% = red -> blue -> 100% = green,
+    with a smooth gradient in between. Brightness and gamma are controllable.
+  domain: automation
+  input:
+    soc_sensor:
+      name: Battery SOC sensor (0-100%)
+      description: A sensor or number entity that reports battery SoC in percent.
+      selector:
+        entity:
+          multiple: false
+          filter:
+            - domain: sensor
+              device_class: battery
+    target_light:
+      name: Target color bulb
+      selector:
+        target:
+          entity:
+            domain: light
+    brightness_control:
+      name: Brightness Control
+      selector: 
+        entity:
+          domain: input_number
+    color_map:
+      name: Color Map
+      description: >
+        Specify colors corresponding to a SOC. The SOC given is the maximum for that color. For example, if you specify "Red" at 20%, then
+        the lamp will be red for any SOC from 0% to 20% (non-inclusive). The next color specified will cover from the previous SOC up to its SOC, and so on.
+        If the SOC is above the highest specified SOC, the lamp will use that highest color.
+
+        The colors Red, Orange, Yellow, Green, Blue, Indigo, and Violet are supported.
+      default:
+        - color: Red
+          soc_percent: 20
+        - color: Orange
+          soc_percent: 40
+        - color: Yellow
+          soc_percent: 60
+        - color: Blue
+          soc_percent: 80
+        - color: Green
+          soc_percent: 100
+      selector:
+        object:
+          label_field: color
+          description_field: soc_percent
+          multiple: true
+          fields:
+            color:
+              label: Color
+              required: true
+              selector:
+                select:
+                  options:
+                    - Red
+                    - Orange
+                    - Yellow
+                    - Green
+                    - Blue
+                    - Indigo
+                    - Violet
+                    - Lime
+                    - Gold
+                    - Cyan
+            soc_percent:
+              label: SOC Percent
+              required: true
+              selector:
+                number:
+                  min: 0
+                  max: 100
+                  step: 1
+    update_interval_sec:
+      name: Update interval (seconds)
+      description: In addition to state changes, refresh on this cadence.
+      default: 30
+      selector: { number: { min: 5, max: 600, step: 5, mode: slider } }
+
+mode: single
+
+variables:
+  # get the input control names
+  soc_sensor: !input soc_sensor
+  brightness_control: !input brightness_control
+  color_map: !input color_map
+
+  # it expects a brightness value 0..255
+  brightness: |
+    {% set brightness_value = states(brightness_control) | float(0) %}
+    {% set brightness_limited = min(100, max(0, brightness_value)) %}
+    {% set brightness = brightness_limited * 255 / 100 | round(0) | int %}
+    {{ brightness }}
+
+  # the hue is a color from red (0) to green (120)
+  # the saturation is pegged to 100%
+  color: |
+    {# Clamp SoC #}
+    {% set soc_raw = states(soc_sensor) | float(0) %}
+    {% set soc_limited = [0, [soc_raw, 100] | min] | max %}
+
+    {# Ensure sorted ascending by soc_percent #}
+    {% set sorted_map = color_map | sort(attribute='soc_percent') | list %}
+
+    {# Guard: if no entries at all, default to 'White' (It's a lamp) #}
+    {% if (sorted_map | count) == 0 %}
+      White
+    {% else %}
+      {# All entries with threshold <= current SOC #}
+      {% set eligible = sorted_map | selectattr('soc_percent','<=', soc_limited) | list %}
+
+      {# If none (SOC below first threshold), take the first; else take the last eligible #}
+      {% set chosen = (eligible | last) if (eligible | count) > 0 else (sorted_map | first) %}
+      {{ chosen.color }}
+    {% endif %}
+
+triggers:
+  - trigger: state
+    entity_id: !input soc_sensor
+  - trigger: state
+    entity_id: !input brightness_control
+  - trigger: time_pattern
+    seconds: !input update_interval_sec
+  - trigger: homeassistant
+    event: start
+
+condition: []
+
+action:
+  sequence:
+    - event: automation_log
+      event_data:
+        level: info
+        message: >
+          Setting lamp color based on SOC {{ states(soc_sensor) }}% to color {{ color }} and brightness {{ brightness }}.
+    - service: light.turn_on
+      target: !input target_light
+      data:
+        color_name: "{{ color }}"
+        brightness: "{{ brightness }}"
