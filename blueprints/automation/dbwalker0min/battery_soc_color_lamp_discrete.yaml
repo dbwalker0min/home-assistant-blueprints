@@ -110,11 +110,9 @@ variables:
     {% if (sorted_map | count) == 0 %}
       White
     {% else %}
-      {# All entries with threshold <= current SOC #}
-      {% set eligible = sorted_map | selectattr('soc_percent','<=', soc_limited) | list %}
-
-      {# If none (SOC below first threshold), take the first; else take the last eligible #}
-      {% set chosen = (eligible | last) if (eligible | count) > 0 else (sorted_map | first) %}
+      {# Treat thresholds as upper bounds: find first soc_percent >= SoC #}
+      {% set upper = sorted_map | selectattr('soc_percent','ge', soc_limited) | list %}
+      {% set chosen = (upper | first) if (upper | count) > 0 else (sorted_map | last) %}
       {{ chosen.color }}
     {% endif %}
 
