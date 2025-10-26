@@ -1,0 +1,193 @@
+blueprint:
+  name: Control front door lock
+  description: >
+    Control the front door lock
+  domain: automation
+  input:
+    front_door_lock:
+      name: Front Door Lock
+      description: >
+        Lock entity for the front door.
+      selector:
+        entity:
+          domain: lock
+    front_door_sensor:
+      name: Front Door Sensor
+      description: >
+        Binary sensor that detects whether the front door is open or closed.
+      selector:
+        entity:
+          domain: binary_sensor
+    auto_open_people:
+      name: People to Auto Open For
+      description: >
+        Specify the people for whom the front door should auto-open when they arrive home.
+      selector:
+        entity:
+          domain: person
+          multiple: true
+    auto_close_delay:
+      name: Auto Close Delay (minutes)
+      description: >
+        Number of minutes to wait before auto-locking the front door after it has been detected closed by the sensor, and
+        the lock has not been auto-opened.
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+    auto_relock_timer:
+      name: Auto Relock Timer
+      description: >
+        Timer required in the automation.
+      selector:
+        entity:
+          domain: timer
+    auto_open_time_to_live:
+      name: Auto Open Time to Live (minutes)
+      description: >
+        Number of minutes to keep the door open after an auto-open request before locking it again. This parameter is present so
+        the delay can be extended over the auto-close delay if desired.
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 1
+    auto_open_in_progress:
+      name: Auto Open In Progress Input Boolean
+      description: >
+        Input boolean to indicate that an auto-open operation is in progress.
+      selector:
+        entity:
+          domain: input_boolean
+    debug_mode:
+      name: Debug Mode
+      description: If on, the automation will log actions instead of performing them. In addition, the time values will be treated as seconds instead of minutes.
+      default: false
+      selector:
+        boolean:
+
+variables:
+  auto_close_delay: !input auto_close_delay
+  auto_open_time_to_live: !input auto_open_time_to_live
+  debug_mode: !input debug_mode
+
+triggers:
+  - trigger: state
+    entity_id: !input auto_open_people
+    from: "not_home"
+    to: "home"
+    id: person_arrived
+  - trigger: state
+    entity_id: !input front_door_sensor
+    to: 'on'
+    id: door_closed
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: !input auto_relock_timer
+    id: timer_finished
+  - trigger: state
+    entity_id: !input front_door_sensor
+    to: 'unlocked'
+    id: lock_unlocked
+
+condition: []
+
+mode: single
+
+action:
+  - choose:
+      # When a person arrives home, unlock the front door, set the auto-open-in-progress flag and set the auto-relock timer to the time to live
+      - conditions:
+          - condition: trigger
+            id: person_arrived
+        sequence:
+          - service: timer.start
+            target:
+              entity_id: !input auto_relock_timer
+            data:
+              duration: >
+                  {% if debug_mode %}
+                    {{ auto_open_time_to_live }}
+                  {% else %}
+                    {{ auto_open_time_to_live*60 }}
+                  {% endif %}
+          - if:
+              - alias: "In debug mode, don't actually change the lock state"
+                condition: template
+                value_template: "{{ not debug_mode }}"
+            then:
+              - service: lock.unlock
+                target:
+                  entity_id: !input front_door_lock
+            else:
+              - event: automation_log
+                event_data:
+                  level: info
+                  message: >
+                    [Debug Mode] Would unlock front door {{ front_door_lock }} for arriving person(s) {{ trigger.entity_id }}.
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input auto_open_in_progress
+      
+      # When the door is closed and auto-unlock is in progress, lock the door, clear the auto-open-in-progress flag, and cancel the auto-relock timer
+      - conditions:
+          - condition: trigger
+            id: door_closed
+        sequence:
+          - service: timer.start
+            target:
+              entity_id: !input auto_relock_timer
+            data:
+              duration: >
+                  {% if debug_mode %}
+                    {{ auto_close_delay }}
+                  {% else %}
+                    {{ auto_close_delay*60 }}
+                  {% endif %}
+
+      # This will happen if the door was auto-unlocked but never closed within the time to live, or if the door was closed and the timer expired. In either case, it should be locked.
+      - conditions:
+          - condition: trigger
+            id: timer_finished
+        sequence:
+          - if:
+              - alias: "In debug mode, don't actually change the lock state"
+                condition: template
+                value_template: "{{ not debug_mode }}"
+            then:
+              - service: lock.lock
+                target:
+                  entity_id: !input front_door_lock
+            else:
+              - event: automation_log
+                event_data:
+                  level: info
+                  message: >
+                    [Debug Mode] Would lock front door {{ front_door_lock }} as timer finished.
+          - service: input_boolean.turn_off
+            target:
+              entity_id: !input auto_open_in_progress
+      
+      # This will happen if the lock is manually unlocked, and the timer is not running.
+      - conditions:
+          - condition: trigger
+            id: lock_unlocked
+          - condition: state
+            entity_id: !input auto_relock_timer
+            state: "idle"
+        sequence:
+          - service: timer.start
+            target:
+              entity_id: !input auto_relock_timer
+            data:
+              duration: >
+                  {% if debug_mode %}
+                    {{ auto_close_delay }}
+                  {% else %}
+                    {{ auto_close_delay*60 }}
+                  {% endif %}
+                  
