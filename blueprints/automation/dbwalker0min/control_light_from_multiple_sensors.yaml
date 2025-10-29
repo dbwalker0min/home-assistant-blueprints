@@ -4,35 +4,35 @@ blueprint:
     TBD
   domain: automation
 
-input:
-  people_sensors:
-    name: Motion / presence sensors
-    selector:
-      entity:
-        domain: binary_sensor
-        device_class:
-          - motion
-          - occupancy
-          - presence
-        multiple: true
-  light_entity:
-    name: Light to control
-    selector:
-      entity:
-        domain: light
-  no_motion_for:
-    name: No-motion duration (minutes)
-    selector:
-      number:
-        min: 0
-        max: 120
-        mode: box
-        step: 1
-    default: 5
+  input:
+    people_sensors:
+      name: Motion / presence sensors
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class:
+            - motion
+            - occupancy
+            - presence
+          multiple: true
+    switch_entity:
+      name: Switch to control
+      selector:
+        target:
+          entity:
+            domain: 
+              - switch
+    no_motion_for:
+      name: No-motion duration (minutes)
+      selector:
+        duration:
+      default:
+        hours: 0
+        minutes: 1
+        seconds: 0
 
 variables:
   sensors: !input people_sensors
-  off_minutes: !input no_motion_for
 
 triggers:
   - trigger: state
@@ -42,19 +42,19 @@ triggers:
   - trigger: state
     entity_id: !input people_sensors
     to: "off"
-    for:
-      minutes: !input no_motion_for
+    for: !input no_motion_for
     id: off_trigger
 
 action:
   - choose:
+      # Turn on immediately
       - conditions:
           - condition: trigger
             id: on_trigger
         sequence:
-          - service: light.turn_on
-            target:
-              entity_id: !input light_entity
+          - service: switch.turn_on
+            target: !input switch_entity
+      # Turn off only if all sensors are off
       - conditions:
           - condition: trigger
             id: off_trigger
@@ -62,12 +62,6 @@ action:
             value_template: >
               {{ expand(sensors) | selectattr('state', 'eq', 'on') | list | count == 0 }}
         sequence:
-          - service: light.turn_off
-            target:
-              entity_id: !input light_entity
-      - default:
-          - service: light.turn_on
-            target:
-              entity_id: !input light_entity
+          - service: switch.turn_off
+            target: !input switch_entity
 
-conditions:

@@ -22,7 +22,7 @@ blueprint:
             domain: light
     brightness_control:
       name: Brightness Control
-      selector: 
+      selector:
         entity:
           domain: input_number
     color_map:
@@ -79,6 +79,12 @@ blueprint:
       description: In addition to state changes, refresh on this cadence.
       default: 30
       selector: { number: { min: 5, max: 600, step: 5, mode: slider } }
+    debug_mode:
+      name: Debug Mode
+      description: If on, the automation will log actions.
+      default: false
+      selector:
+        boolean:
 
 mode: single
 
@@ -89,6 +95,7 @@ variables:
     {{ states(soc_sensor) | float(-1) }}
   brightness_control: !input brightness_control
   color_map: !input color_map
+  debug_mode: !input debug_mode
 
   # it expects a brightness value 0..255
   brightness: |
@@ -132,14 +139,19 @@ conditions:
     value_template: "{{ soc_raw >= 0 and soc_raw <= 100 }}"
 
 action:
-  sequence:
-    - event: automation_log
-      event_data:
-        level: info
-        message: >
-          Setting lamp color based on SOC {{ states(soc_sensor) }}% to color {{ color }} and brightness {{ brightness }}.
-    - service: light.turn_on
-      target: !input target_light
-      data:
-        color_name: "{{ color }}"
-        brightness: "{{ brightness }}"
+  - if:
+      - condition: template
+        value_template: >
+          {{ debug_mode }}
+    then:
+      - event: automation_log
+        event_data:
+          level: info
+          message: >
+            Setting lamp color based on SOC {{ states(soc_sensor) }}% to color {{ color }} and brightness {{ brightness }}.
+
+  - service: light.turn_on
+    target: !input target_light
+    data:
+      color_name: "{{ color }}"
+      brightness: "{{ brightness }}"
