@@ -1,0 +1,29 @@
+#!/bin/bash
+# Usage: deploy-blueprint <source-file> <type>
+# <type> can be 'automation' or 'script'
+
+set -euo pipefail
+SRC="$1"
+TYPE="${2:-automation}"  # default to automation
+BASENAME="$(basename "$SRC")"
+
+if [[ "$TYPE" == "script" ]]; then
+  TARGET_DIR="/config/scripts/dbwalker0min"
+  SERVICE="script"
+else
+  TARGET_DIR="/config/blueprints/automation/dbwalker0min"
+  SERVICE="automation"
+fi
+
+sudo -n mkdir -p "$TARGET_DIR"
+sudo -n mv "$SRC" "$TARGET_DIR/$BASENAME"
+
+if [[ -r ~/.ha_token ]]; then
+  TOKEN=$(<~/.ha_token)
+  curl -fsS -X POST -H "Authorization: Bearer $TOKEN" \
+       -H "Content-Type: application/json" \
+       "http://127.0.0.1:8123/api/services/$SERVICE/reload" >/dev/null ||
+  sudo -n ha core restart
+else
+  sudo -n ha core restart
+fi

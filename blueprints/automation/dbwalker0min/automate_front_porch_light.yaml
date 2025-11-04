@@ -1,0 +1,157 @@
+blueprint:
+  name: Front porch light automation
+  description: Control the front porch light based on motion detection and time of day.
+  domain: automation
+  input:
+    door_light:
+      name: Front Porch Light
+      description: Light entity for the front porch light to turn on when motion is detected.
+      selector:
+        entity:
+          domain: light
+
+    motion_sensor:
+      name: Front Motion Sensor
+      description: Motion sensor that detects movement in front of the door.
+      selector:
+        entity:
+          # this is what you said you have
+          include_entities:
+            - event.front_door_motion
+
+    light_brightness:
+      name: Light Brightness
+      description: Brightness level to set the front porch light to when turned on in percentage (0-100).
+      default: 80
+      selector:
+        number:
+          unit_of_measurement: "%"
+          min: 0
+          max: 100
+          step: 1
+
+    sun_elevation_threshold:
+      name: Sun Elevation Threshold
+      description: >
+        Sun elevation angle (in degrees) for turning the light on and off at dawn and dusk. For dawn, the
+        light will turn on when the sun rises above this angle, and for dusk, it will turn off when the sun
+        sets below this angle. Note that it must be negative (why turn the light on during the day?).
+      default: -18
+      selector:
+        number:
+          min: -90
+          max: 0
+          step: 1
+
+    light_color:
+      name: Light Color Temperature
+      description: Color to set the front porch light to when turned on. The color temperature is specified in mireds.
+      selector:
+        color_temp:
+          unit: mired
+          min: 111
+          max: 666
+
+    turn_on_duration:
+      name: Light On Duration
+      description: Duration to keep the front porch light on after motion is detected.
+      default:
+        minutes: 5
+        seconds: 0
+      selector:
+        duration: {}
+    
+    debug_mode:
+      name: Debug Mode
+      description: >-
+        If on, the automation will turn the light on in the day instead of at night. This is useful for testing.
+      default: false
+      selector:
+        boolean:
+
+variables:
+  motion_sensor: !input motion_sensor
+  light_color_mired: !input light_color
+  light_color_kelvin: >
+    {% if light_color_mired is not none %}
+      {{ (1000000 / light_color_mired) | round(0) | int }}
+    {% else %}
+      null
+    {% endif %}
+  debug_mode: !input debug_mode
+  sun_state: >
+    {% if (debug_mode | bool) %}
+      states('sun.sun')
+    {% else %}
+      below_horizon
+    {% endif %}
+
+mode: single
+
+triggers:
+  # 1) motion event entity changes
+  - trigger: state
+    entity_id: !input motion_sensor
+    id: motion_detected
+
+  # 2) "dawn" = sun elevation goes above -18 deg
+  - trigger: numeric_state
+    entity_id: sun.sun
+    attribute: elevation
+    above: !input sun_elevation_threshold
+    id: dawn
+
+  # 3) "dusk" = sunset event
+  - trigger: sun
+    event: sunset
+    id: dusk
+
+conditions:
+  - or:
+      # motion, only if sensor isn't unknown and it's dark
+      - >-
+          {{ trigger.id == 'motion_detected'
+             and not is_state(motion_sensor, ['unknown', 'unavailable'])
+             and is_state('sun.sun', sun_state) }}
+      # always allow dawn/dusk triggers through
+      - "{{ trigger.id in ['dawn', 'dusk'] }}"
+
+actions:
+  - choose:
+      # ============== MOTION ==============
+      - conditions: "{{ trigger.id == 'motion_detected' }}"
+        sequence:
+          - &LIGHT_TURN_ON
+            service: light.turn_on
+            target:
+              entity_id: !input door_light
+            data:
+              brightness: !input light_brightness
+              color_temp_kelvin : "{{ light_color_kelvin }}"
+          - delay: !input turn_on_duration
+          - &LIGHT_TURN_OFF
+            service: light.turn_off
+            target:
+              entity_id: !input door_light
+
+      # ============== DAWN ==============
+      - conditions: "{{ trigger.id == 'dawn' }}"
+        sequence:
+          - *LIGHT_TURN_ON
+          # keep it on until actual sunrise
+          - wait_for_trigger:
+              - trigger: sun
+                event: sunrise
+          - *LIGHT_TURN_OFF
+
+      # ============== DUSK ==============
+      - conditions: "{{ trigger.id == 'dusk' }}"
+        sequence:
+          - *LIGHT_TURN_ON
+          # wait until sun elevation drops below -18 again
+          - wait_for_trigger:
+              - trigger: numeric_state
+                entity_id: sun.sun
+                attribute: elevation
+                below: !input sun_elevation_threshold
+          - *LIGHT_TURN_OFF

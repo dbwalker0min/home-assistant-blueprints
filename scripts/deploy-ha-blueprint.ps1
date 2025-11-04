@@ -1,11 +1,33 @@
-param(
-  [Parameter(Mandatory)] [string]$Path,
-  [string]$FileName = (Split-Path -Leaf $Path),
-  [string]$SshHost = "ha"
+param (
+    [Parameter(Mandatory = $true)]
+    [string]$Path
 )
 
-$ErrorActionPreference = "Stop"
-$Path = (Resolve-Path -Path $Path).Path
-echo "Deploying blueprint file '$Path' to Home Assistant host '$SshHost' as '/tmp/$FileName'"
-scp -O "$Path" ("{0}:/tmp/{1}" -f $SshHost, $FileName)
-ssh $SshHost ("sudo -n /config/bin/deploy-blueprint -s /tmp/{0} -n {0}" -f $FileName)
+$haHost = "ha"
+$tmpRemote = "/tmp"
+$fileName = Split-Path $Path -Leaf
+
+
+# Detect type based on path
+if ($Path -match "automation[\\/]+dbwalker0min") {
+    $type = "automation"
+} elseif ($Path -match "script[\\/]+dbwalker0min") {
+    $type = "script"
+} else {
+    Write-Error "❌ Unknown type (expected automation\\dbwalker0min or script\\dbwalker0min)"
+    exit 1
+}
+
+Write-Host "📤 Uploading $fileName to ${haHost}:${tmpRemote} ..."
+# Write-Host "scp -O $Path `"${haHost}:${tmpRemote}/${fileName}`""
+scp -O $Path "${haHost}:${tmpRemote}/${fileName}"
+if ($?) {
+  Write-Host "Command succeeded."
+} else {
+  Write-Host "Command failed."
+}
+Write-Host "🔧 Deploying via helper script on HA ..."
+Write-Host "ssh $haHost `"/config/bin/deploy-blueprint ${tmpRemote}/${fileName} ${type}`""
+ssh $haHost "sudo /config/bin/deploy-blueprint ${tmpRemote}/${fileName} ${type}"
+
+Write-Host "✅ Deployment complete! (${type} → ${fileName})"

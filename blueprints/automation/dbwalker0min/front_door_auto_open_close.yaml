@@ -1,4 +1,50 @@
 blueprint:
+  # Blueprint: Front Door Auto Open/Close
+  # Summary:
+  #   Automates a front door smart lock by unlocking for selected people upon arrival
+  #   and re-locking after the door closes and a configurable delay. Uses a binary
+  #   door sensor that reports ON when the door is open.
+  #
+  # Inputs:
+  #   door_lock:
+  #     - The lock entity to control (e.g., lock.front_door). This has been tested with a U-Lock.
+  #   door_open_sensor:
+  #     - Binary sensor for the door. IMPORTANT: This sensor must be ON when the door is open,
+  #       and OFF when the door is closed. If your sensor is the opposite, invert it before use.
+  #   auto_open_people:
+  #     - List of person entities for whom the door should auto-unlock when they arrive home.
+  #   auto_unlock_time_to_enter:
+  #     - Duration to keep the door unlocked after an auto-unlock before locking it again. Opening the
+  #       door in the meantime resets this timer. This allows extra time to enter if desired.
+  #   auto_relock_delay:
+  #     - Duration to wait after the door is detected closed before auto-locking (e.g., a few seconds/minutes).
+  #   debug_mode:
+  #     - If on, the automation does not perform lock and unlock actions.
+  #
+  # Behavior:
+  #   - Auto-Open on Arrival:
+  #       When any configured person transitions to "home", the automation unlocks the door.
+  #   - Auto-Relock:
+  #       When the door is unlocked manually, a timer is started for the configured delay.
+  #       At the end of the delay, the door is locked.
+  #   - Safety/Consistency:
+  #       The door is (almost) never locked while the door sensor indicates open.
+  #       If the door opens during the relock delay, the timer is canceled and will restart on the next close.
+  #
+  # Assumptions and Requirements:
+  #   - The door binary sensor logic is ON=open, OFF=closed.
+  #   - Person entities provide reliable presence (not_home -> home) for arrival detection.
+  #   - Your lock entity supports standard lock/unlock services.
+  #
+  # Tips:
+  #   - If your contact sensor is inverted, create a templated inverted sensor so ON means open.
+  #
+  # Example (conceptual):
+  #   - door_lock: lock.front_door
+  #   - door_open_sensor: binary_sensor.front_door
+  #   - auto_open_people: [person.alex, person.sam]
+  #   - auto_relock_delay: 5 minutes
+  #   - auto_unlock_time_to_enter: 15 minutes
   name: Control door lock
   description: >
     Control the front door lock
@@ -11,13 +57,15 @@ blueprint:
       selector:
         entity:
           domain: lock
+
     door_open_sensor:
       name: Door Sensor
       description: >
-        Binary sensor that detects whether the front door is open or closed. It is a binary sensor that is 'on' when the door is closed.
+        Binary sensor that detects whether the front door is open or closed. It is a binary sensor that is 'on' when the door is open.
       selector:
         entity:
           domain: binary_sensor
+
     auto_open_people:
       name: People to Auto Open For
       description: >
@@ -26,6 +74,7 @@ blueprint:
         entity:
           domain: person
           multiple: true
+
     auto_relock_delay:
       name: Auto Close Delay
       description: >
@@ -37,6 +86,7 @@ blueprint:
         seconds: 0
       selector:
         duration:
+
     auto_unlock_time_to_enter:
       name: Auto Unlock Time to Enter
       description: >
@@ -48,9 +98,10 @@ blueprint:
         seconds: 0
       selector:
         duration:
+
     debug_mode:
       name: Debug Mode
-      description: If on, the automation will log actions instead of performing them. In addition, the time values will be treated as seconds instead of minutes.
+      description: If on, the automation not perform lock and unlock actions.
       default: false
       selector:
         boolean:
@@ -59,88 +110,92 @@ variables:
   debug_mode: !input debug_mode
   door_open_sensor: !input door_open_sensor
   door_lock: !input door_lock
+  auto_relock_delay: !input auto_relock_delay
+  perform_actions: "{{ not (debug_mode | bool) }}"
 
 triggers:
-  - trigger: state
+  - alias: Person just arrived
+    trigger: state
     entity_id: !input auto_open_people
     from: "not_home"
     to: "home"
     id: person_just_arrived
 
-  - trigger: state
+  - alias: Door just unlocked
+    trigger: state
     entity_id: !input door_lock
-    from: "locked"
     to: "unlocked"
-    id: lock_unlocked
     for: !input auto_relock_delay
-  # - trigger: homeassistant
-  #   event: start
-  #   id: hass_startup
+    id: door_lock_unlocked
 
 conditions: []
 
 mode: single
 
 actions:
-  - event: automation_log
-    event_data:
-      level: info
-      message: >
-        Trigger {{ trigger.id }} fired at {{ now().strftime('%H:%M:%S') }}
-        (lock={{ states(door_lock) }}, door={{ states(door_open_sensor) }})
-
-  # automatically unlock the door for arriving person
-  - if:
-      - condition: template
-        value_template: >
-          {{ debug_mode | bool }}
-    then:
-      - event: automation_log
-        event_data:
-          level: info
-          message: >
-            [Debug Mode] Would unlock front door {{ door_lock }} for arriving person(s) {{ trigger.entity_id }}.
-    else:
-      - service: lock.unlock
-        target:
-          entity_id: !input door_lock
-  - wait_for_trigger:
-      - alias: Wait for door to be opened, then closed
-        trigger: state
-        entity_id: !input door_open_sensor
-        from: "on"
-        to: "off"
-        timeout: !input auto_unlock_time_to_enter
-  - if:
-      - "{{ wait.completed }}"
-    then:
-      # The wait completed (i.e. door was opened and closed). Set a timer to relock after auto_relock_delay
-      - delay: !input auto_relock_delay
-      - &LOCK_DOOR_ACTION
-        if:
-          - condition: state
-            entity_id: !input door_open_sensor
-            state: "off"  # Still closed?
-          - condition: state
-            entity_id: !input door_lock   
-            state: "unlocked"  # Still unlocked?
-        then:
-          - if:
-              - condition: template
-                value_template: >
-                  {{ debug_mode | bool }}
+  # Log the event if in a log event is specified
+  - choose:
+      - alias: Automatically unlock the door for an arriving person
+        conditions: "{{ trigger.id == 'person_just_arrived' }}"
+        sequence:
+          - if: "{{ perform_actions | bool }}"
             then:
-              - event: automation_log
-                event_data:
-                  level: info
-                  message: >
-                    [Debug Mode] Would lock front door {{ door_lock }}.
-            else:
-              - service: lock.lock
+              - alias: Unlock the door
+                service: lock.unlock
                 target:
                   entity_id: !input door_lock
-    else:
-      # The wait did not complete (i.e. timeout). ReLock the door.
-      - *LOCK_DOOR_ACTION
 
+          - alias: Wait for door to open or entry timeout
+            wait_template: "{{ is_state(door_open_sensor, 'on') }}"
+            timeout: !input auto_unlock_time_to_enter
 
+          - variables:
+              use_relock_delay: "{{ wait.completed }}"
+
+          # At this point, the door is open.
+          # This sequence waits for the door to be closed, and once closed, it locks it again.
+          - &DOOR_LOCK
+            alias: Auto relock the door loop
+            repeat:
+              sequence:
+                - variables:
+                    # signal to lock the door in the loop
+                    lock_the_door: true
+
+                - alias: Wait forever for door to be closed (maybe it is already)
+                  wait_template: "{{ is_state(door_open_sensor, 'off') }}"
+
+                # At this point, the door is closed, so we can lock it if needed.
+                # It can be interrupted by the door opening again, in which case we wait for it to be closed again in the next loop iteration.
+                - if: "{{ use_relock_delay | bool }}"
+                  then:
+                    - alias: Wait for door to open
+                      wait_template: "{{ is_state(door_open_sensor, 'on') }}"
+                      timeout: !input auto_relock_delay
+
+                    - alias: Set the variables for the next loop iteration
+                      variables:
+                        # next time through, always use the relock delay
+                        use_relock_delay: true
+                        # if the door opened, then don't try to lock the door
+                        lock_the_door: "{{ not (wait.completed | bool) }}"
+
+                # If the door was opened while waiting, then don't try to lock it and let the loop run again.
+                # The repeat loop will not stop until the door is both closed and locked.
+                - if: "{{ (lock_the_door | bool) and (perform_actions | bool) }}"
+                  then:
+                    - alias: Locking the door
+                      service: lock.lock
+                      target:
+                        entity_id: !input door_lock
+                    - alias: Small delay to allow lock state to update
+                      delay: "00:00:15"
+              until: "{{ lock_the_door | bool }}"
+
+      - alias: Auto relock after door unlocked
+        conditions: "{{ trigger.id == 'door_lock_unlocked' }}"
+        sequence:
+          - variables:
+              # I don't need to use the delay because the trigger already waited for it
+              use_relock_delay: false
+          - *DOOR_LOCK

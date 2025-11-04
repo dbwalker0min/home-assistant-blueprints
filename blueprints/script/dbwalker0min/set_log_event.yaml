@@ -1,0 +1,48 @@
+blueprint:
+  name: Conditional Log Event
+  domain: script
+  description: >
+    Fires a custom event (e.g. automation_log) when debug mode is enabled.
+  input:
+    event_name:
+      name: Event Name
+      description: >
+        The event name to fire when logging. For example, use "automation_log" to log to the automation log.
+      default: automation_log
+      selector:
+        text:
+
+fields:
+  debug_mode:
+    name: Debug Mode
+    description: >
+      Logs an event if debug mode is enabled.
+    default: false
+    selector:
+      boolean:
+  level:
+    name: Log Level
+    description: >
+      The log level for the event.
+    default: info
+    selector:
+      select:
+        options:
+          - info
+          - warning
+          - error
+          - success
+  message:
+    name: Message
+    description: >
+      The log message to send.
+    selector:
+      text:
+
+sequence:
+  - if: [ "{{ debug_mode | bool }}" ]
+    then:
+      - event: !input event_name
+        event_data:
+          level: "{{level}}"
+          message: "{{message}}"
