@@ -1,0 +1,41 @@
+# packages/garage_test.yaml  (add to what you already have)
+
+automation:
+  # 1) The automation-under-test: created from your blueprint
+  - id: garage_blueprint_under_test
+    alias: "Garage Blueprint (Under Test)"
+    mode: single
+    use_blueprint:
+      # Path is relative to config/blueprints/automation/
+      # e.g., config/blueprints/automation/dbwalker/garage_auto_open.yaml
+      path: dbwalker/garage_auto_open.yaml
+      input:
+        garage_cover: cover.test_garage
+        people_entities:
+          - person.test_person
+        test_mode: true
+        # add any other required blueprint inputs here, e.g.:
+        # door_open_sensor: binary_sensor.front_door
+        # notify_target: notify.mobile_app_pixel
+
+  # 2) Optional: a tiny harness to exercise the blueprint using your test entities
+  - id: garage_blueprint_test_harness
+    alias: "Garage Blueprint: Test Harness"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: input_button.garage_test_run
+    action:
+      - service: cover.close_cover
+        target: { entity_id: cover.test_garage }
+      - service: mqtt.publish
+        data: { topic: lab/test_person/state, payload: home, retain: true }
+      - delay: "00:00:02"
+      - service: cover.open_cover
+        target: { entity_id: cover.test_garage }
+      - delay: "00:00:03"
+      - service: mqtt.publish
+        data: { topic: lab/test_person/state, payload: not_home, retain: true }
+      - delay: "00:00:02"
+      - service: cover.close_cover
+        target: { entity_id: cover.test_garage }

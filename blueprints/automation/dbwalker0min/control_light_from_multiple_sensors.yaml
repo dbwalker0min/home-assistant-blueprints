@@ -1,9 +1,8 @@
 blueprint:
-  name: Control a light from multiple presense sensors
+  name: Control a light from multiple presence sensors
   description: >
     TBD
   domain: automation
-
   input:
     people_sensors:
       name: Motion / presence sensors
@@ -20,7 +19,7 @@ blueprint:
       selector:
         target:
           entity:
-            domain: 
+            domain:
               - switch
     no_motion_for:
       name: No-motion duration (minutes)
@@ -30,6 +29,14 @@ blueprint:
         hours: 0
         minutes: 1
         seconds: 0
+
+    door_sensor:
+      name: Door Sensor
+      description: Door sensor that detects if the door is open or closed. The light will be turned on when the door opens as well.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: door
 
 variables:
   sensors: !input people_sensors
@@ -44,13 +51,20 @@ triggers:
     to: "off"
     for: !input no_motion_for
     id: off_trigger
+  - trigger: state
+    entity_id: !input door_sensor
+    to: "on"
+    id: door_open_trigger
 
 action:
   - choose:
       # Turn on immediately
       - conditions:
-          - condition: trigger
-            id: on_trigger
+          - or:
+              - condition: trigger
+                id: on_trigger
+              - condition: trigger
+                id: door_open_trigger
         sequence:
           - service: switch.turn_on
             target: !input switch_entity
@@ -64,4 +78,3 @@ action:
         sequence:
           - service: switch.turn_off
             target: !input switch_entity
-

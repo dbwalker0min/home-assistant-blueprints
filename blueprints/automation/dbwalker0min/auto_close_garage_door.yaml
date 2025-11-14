@@ -1,0 +1,79 @@
+blueprint:
+  name: Auto-Close Garage Door if no one is Home
+  description: >
+    Closes the garage door if no one is home when enabled. The amount of time can be configured.
+  domain: automation
+  input:
+    people_entities:
+      name: People Entities
+      description: >
+        Person entities to monitor for presence.
+      selector:
+        entity:
+          domain: 
+            - person
+            - input_select
+          multiple: true
+    garage_cover:
+      name: Garage Door
+      selector:
+        entity:
+          domain: cover
+    time_before_close:
+      name: Time Before Close
+      description: >
+        Time to wait after everyone has left before closing the garage door.
+      default:
+        minutes: 3
+        seconds: 0
+      selector:
+        duration:
+    test_mode:
+      name: Test Mode
+      description: If on, the automation will not actually perform closing the garage door.
+      default: false
+      selector:
+        boolean:
+
+
+triggers:
+  - alias: The garage door opened
+    trigger: state
+    entity_id: !input garage_cover
+    to: "open"
+    for: !input time_before_close
+    id: garage_door_opened
+  - alias: People left
+    trigger: state
+    entity_id: !input people_entities
+    to: "not_home"
+    id: people_presence_changed
+
+variables:
+  test_mode: !input test_mode
+  people_entities: !input people_entities
+  garage_cover: !input garage_cover
+  nobody_home: >
+    {{ expand(people_entities)
+       | selectattr('state', 'eq', 'home')
+       | list
+       | count == 0 }}
+
+conditions: 
+  - "{{ nobody_home | bool }}"
+  - or:
+      - "{{ trigger.id == 'garage_door_opened' }}"
+      - "{{ trigger.id == 'people_presence_changed' and is_state(garage_cover, 'open') }}"
+
+action:
+  - if: "{{ test_mode | bool }}"
+    then:
+      - event: automation_log
+        event_data:
+          level: info
+          message: "Would close the garage door because of {{ trigger.id }}"
+    else: 
+      - alias: Closing the garage door
+        service: cover.close_cover
+        target:
+          entity_id: !input garage_cover

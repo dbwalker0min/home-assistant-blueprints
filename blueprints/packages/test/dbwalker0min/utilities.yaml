@@ -1,0 +1,155 @@
+# These are generic test utilities for dbwalker0min package
+
+script:
+  assert_condition:
+    alias: Assert Condition
+    mode: queued
+    fields:
+      condition:
+        description: Jinja condition to evaluate
+      message:
+        description: Assertion description
+    sequence:
+      - service: system_log.write
+        data:
+          level: "{{ iif(condition | bool, 'info', 'error')}}"
+          message: "{{ message }}"
+          logger: automation_test
+      - if: "{{ not condition | bool }}"
+        then:
+          - event: test_case_result
+            event_data:
+              id: "{{ trigger.script_entity_id.split('.')[-1].replace('test_case_','') }}"
+              passed: false
+          - stop: "Assertion failed: {{ message }}"
+            error: true
+
+  test_done:
+    alias: Test Completed Successfully
+    mode: queued
+    sequence:
+      - event: test_case_result
+        event_data:
+          id: "{{ trigger.script_entity_id.split('.')[-1].replace('test_case_','') }}"
+          passed: true
+
+  test_reset_env:
+    alias: "TEST: reset env"
+    mode: queued
+    sequence:
+      - service: cover.close_cover
+        target: { entity_id: cover.test_garage }
+      - service: mqtt.publish
+        data:
+          topic: lab/test_person/state
+          payload: home
+          retain: true
+      - delay: "00:00:01"
+
+  test_run_suite:
+    alias: "TEST: run suite"
+    mode: single
+    fields:
+      tests:
+        description: "List of test IDs (e.g., ['open_triggers','leave_triggers'])"
+      per_test_timeout:
+        description: "Seconds to wait for each test"
+        default: 20
+      test_setup:
+        description: "Optional script entity_id to run before each test (e.g., script.test_setup_env)"
+      test_teardown:
+        description: "Optional script entity_id to run after each test (e.g., script.test_teardown_env)"
+    sequence:
+      - variables:
+          _tests: "{{ tests if tests is list else [] }}"
+          _timeout_s: "{{ per_test_timeout | int }}"
+          _timeout_hms: "00:00:{{ per_test_timeout | int }}"
+          _setup: "{{ test_setup | default('', true) }}"
+          _teardown: "{{ test_teardown | default('', true) }}"
+          _passed: 0
+          _failed: 0
+
+      - repeat:
+          for_each: "{{ _tests }}"
+          sequence:
+            - variables:
+                _id: "{{ repeat.item }}"
+                _script_eid: "{{ 'script.test_case_' ~ _id }}"
+
+            # optional per-test setup
+            - if: "{{ _setup != '' }}"
+              then:
+                - service: script.turn_on
+                  target:
+                    entity_id: "{{ _setup }}"
+                - wait_template: "{{ is_state(_setup, 'off') }}"
+                  timeout: "{{ _timeout_hms }}"
+                  continue_on_timeout: true
+                - if: "{{ not wait.completed }}"
+                  then:
+                    - exit: "Test setup timed out"
+                      error: true
+
+            # run the test case script
+            - service: script.turn_on
+              target:
+                entity_id: "{{ _script_eid }}"
+
+            # wait for the test script to finish
+            - wait_template: "{{ is_state(_script_eid, 'off') }}"
+              timeout: "{{ _timeout_hms }}"
+              continue_on_timeout: true
+
+            - alias: Check if test case timed out
+              if: "{{ wait.completed }}"
+              then:
+
+            # Wait for its reported result event. This event *must* be emitted by the test case script.
+            - wait_for_trigger:
+                - platform: event
+                  event_type: test_case_result
+                  event_data:
+                    id: "{{ _id }}"
+              timeout: "{{ _timeout_hms }}"
+              continue_on_timeout: true
+
+            - alias: Check if test case timed out
+              if: "{{ wait.completed }}"
+              then:
+
+                # classify pass/fail
+                - variables:
+                    _this_passed: "{{ wait.trigger and (wait.trigger.event.data.passed | bool) }}"
+                - choose:
+                    - conditions: "{{ _this_passed }}"
+                      sequence:
+                        - variables: { _passed: "{{ _passed + 1 }}" }
+                        - service: system_log.write
+                          data:
+                            level: info
+                            logger: automation_test
+                            message: "[PASS] {{ _id }}"
+                    - default:
+                        - variables: { _failed: "{{ _failed + 1 }}" }
+                        - service: system_log.write
+                          data:
+                            level: error
+                            logger: automation_test
+                            message: "[FAIL] {{ _id }} (timeout or failure)"
+
+            # optional per-test teardown
+            - if: "{{ _teardown != '' }}"
+              then:
+                - service: script.turn_on
+                  target:
+                    entity_id: "{{ _teardown }}"
+                - wait_template: "{{ is_state(_teardown, 'off') }}"
+                  timeout: "{{ _timeout_hms }}"
+                  continue_on_timeout: true
+
+      # suite summary
+      - service: system_log.write
+        data:
+          level: "{{ 'info' if _failed == 0 else 'error' }}"
+          logger: automation_test
+          message: "[SUITE] {{ _passed }} passed, {{ _failed }} failed"

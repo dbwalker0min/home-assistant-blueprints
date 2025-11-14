@@ -1,0 +1,147 @@
+blueprint:
+  name: Hall light autmoation
+  description: Turn on the hall light when motion is detected if it's dark outside, and turn it off when motion stops.
+  domain: automation
+  input:
+    hall_light:
+      name: Hall Light
+      description: The light entity for the hall light to control.
+      selector:
+        entity:
+          domain: light
+
+    motion_sensor:
+      name: Motion Sensor
+      description: Motion sensor that detects movement in the hall.
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: motion
+    lux_sensor:
+      name: Illuminance Sensor
+      description: Sensor that measures the ambient light level in lux.
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+    
+    light_brightness:
+      name: Light Brightness
+      description: Brightness level to set the hall light to when turned on in percentage (0-100).
+      default: 100
+      selector:
+        number:
+          unit_of_measurement: "%"
+          min: 0
+          max: 100
+          step: 1
+      
+    light_color_temp:
+      name: Light Color Temperature
+      description: Color temperature to set the hall light to when turned on. The color temperature is specified in mireds.
+      default: 250
+      selector:
+        color_temp:
+          unit: mired
+          min: 153
+          max: 500
+    
+    night_brightness:
+      name: Night Brightness
+      description: Brightness level to set the hall light to during dimming hours in percentage (0-100).
+      default: 30
+      selector:
+        number:
+          unit_of_measurement: "%"
+          min: 0
+          max: 100
+          step: 1
+    
+    night_color:
+      name: Nighttime Lamp Color
+      default: [255, 140, 0]
+      selector:
+        color_rgb:
+
+    lux_threshold:
+      name: Lux Threshold
+      description: >
+        The illuminance level (in lux) below which the hall light should turn on when motion is detected. If the ambient light is above this level, the hall light will not turn on.
+      selector:
+        number:
+          unit_of_measurement: "lx"
+          min: 0
+          max: 100
+          step: 1
+
+    dim_light_start_time:
+      name: Dim Light Start Time
+      description: Time of day to start dimming the hall light.
+      selector:
+        time:
+
+    dim_light_end_time:
+      name: Dim Light End Time
+      description: Time of day to end dimming the hall light.
+      selector:
+        time:
+    
+triggers:
+  - trigger: state
+    entity_id:
+      - binary_sensor.multisensor_7_motion_detection
+    to:
+      - "on"
+    id: motion_detected
+  - trigger: state
+    entity_id:
+      - binary_sensor.multisensor_7_motion_detection
+    to:
+      - "off"
+    id: motion_clear
+
+conditions: []
+
+variables:
+  lux_sensor: !input lux_sensor
+  lux_threshold: !input lux_threshold
+  light_color_temp: !input light_color_temp
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: motion_detected
+        sequence:
+          # Check the illuminance level
+          - if: "{{ states(lux_sensor) | float < lux_threshold | float }}"
+            then:
+              # Check if current time is within dimming hours
+              - if: 
+                  - condition: time
+                    after: !input dim_light_start_time
+                    before: !input dim_light_end_time
+                then:
+                  # Set hall light to night brightness and color
+                  - action: light.turn_on
+                    data:
+                      rgb_color: !input night_color
+                      brightness_pct: !input night_brightness
+                    target:
+                      entity_id: !input hall_light
+                else:
+                  # Set hall light to normal brightness and color temperature
+                  - action: light.turn_on
+                    data:
+                      color_temp_kelvin: "{{ 1e6 / light_color_temp | float() }}"
+                      brightness_pct: !input light_brightness
+                    target:
+                      entity_id: !input hall_light
+      - conditions:
+          - condition: trigger
+            id: motion_clear
+        sequence:
+          - action: light.turn_off
+            target:
+              entity_id: !input hall_light
+mode: single

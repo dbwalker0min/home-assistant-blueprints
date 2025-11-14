@@ -10,12 +10,13 @@ blueprint:
       description: A sensor or number entity that reports battery SoC in percent.
       selector:
         entity:
-          multiple: false
           filter:
             - domain: sensor
               device_class: battery
+            - domain: input_number
     target_light:
       name: Target color bulb
+      description: The color-capable light to set based on battery SOC. This must be a LIFX color bulb.
       selector:
         target:
           entity:
@@ -74,17 +75,22 @@ blueprint:
                   min: 0
                   max: 100
                   step: 1
-    update_interval_sec:
-      name: Update interval (seconds)
-      description: In addition to state changes, refresh on this cadence.
-      default: 30
-      selector: { number: { min: 5, max: 600, step: 5, mode: slider } }
-    debug_mode:
-      name: Debug Mode
-      description: If on, the automation will log actions.
-      default: false
+    flash_on_low_soc:
+      name: Flash on Low SOC
+      description: If enabled, the lamp will flash when the SOC drops below the specified limit.
+      default: {}
       selector:
-        boolean:
+        object:
+          fields:
+            soc_flash_percent:
+              required: false
+              label: SOC Percent Threshold
+              selector:
+                number:
+                  min: 0
+                  max: 100
+                  step: 1
+                  unit_of_measurement: "%"
 
 mode: single
 
@@ -95,7 +101,6 @@ variables:
     {{ states(soc_sensor) | float(-1) }}
   brightness_control: !input brightness_control
   color_map: !input color_map
-  debug_mode: !input debug_mode
 
   # it expects a brightness value 0..255
   brightness: |
@@ -123,13 +128,26 @@ variables:
       {{ chosen.color }}
     {% endif %}
 
+  flash_on_low_soc: !input flash_on_low_soc
+  # This variable is true if flashing is enabled, i.e. the user provided a soc_flash_percent
+  flash_enabled: >
+    {{ flash_on_low_soc is mapping
+       and 'soc_flash_percent' in flash_on_low_soc
+       and flash_on_low_soc.soc_flash_percent is not none }}
+
+  low_soc_threshold: >
+    {{ (flash_on_low_soc.soc_flash_percent
+        if flash_enabled else 0) | float(0) }}
+
+  lowest_color: >
+    {% set sorted = color_map | sort(attribute='soc_percent') | list %}
+    {{ (sorted | first).color if (sorted | count) > 0 else 'Red' }}
+
 triggers:
   - trigger: state
     entity_id: !input soc_sensor
   - trigger: state
     entity_id: !input brightness_control
-  - trigger: time_pattern
-    seconds: !input update_interval_sec
   - trigger: homeassistant
     event: start
 
@@ -139,17 +157,26 @@ conditions:
     value_template: "{{ soc_raw >= 0 and soc_raw <= 100 }}"
 
 action:
-  - if:
-      - condition: template
-        value_template: >
-          {{ debug_mode }}
+  - if: "{{ flash_enabled and (soc_raw < low_soc_threshold) }}"
     then:
-      - event: automation_log
-        event_data:
-          level: info
-          message: >
-            Setting lamp color based on SOC {{ states(soc_sensor) }}% to color {{ color }} and brightness {{ brightness }}.
-
+      - service: light.turn_on
+        target: !input target_light
+        data:
+          brightness: "{{ brightness / 4 }}"
+          color_name: "{{ lowest_color }}"
+      - service: lifx.effect_pulse
+        target: !input target_light
+        data:
+          color_name: "{{ lowest_color }}"
+          period: 7
+          cycles: 10000
+          mode: breathe
+          power_on: true
+          brightness: "{{ brightness }}"
+      
+      # Wait until SOC is back above threshold
+      - wait_template: "{{ states(soc_sensor) | float(-1) >= low_soc_threshold }}"
+        
   - service: light.turn_on
     target: !input target_light
     data:
