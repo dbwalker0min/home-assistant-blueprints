@@ -4,7 +4,8 @@ blueprint:
     Simple control of car charging based on battery state of charge.
 
     Basically, this will enable car charging when the battery is above a certain SOC,
-    and disable it when it falls below another SOC.
+    and disable it when it falls below another SOC. It can be forced the charge at midnight
+    if regardless of SOC if the helper is enabled.
   domain: automation
   input:
     charge_enable_switch:
@@ -25,6 +26,7 @@ blueprint:
           min: 1
           max: 100
           step: 1
+
     disable_charge_level:
       name: Disable Charge Level (SOC)
       default: 50
@@ -33,59 +35,93 @@ blueprint:
           min: 1
           max: 100
           step: 1
-    test_mode:
-      name: Test Mode
-      description: If on, the automation will log actions instead of performing them.
+    
+    charging_power_sensor:
+      name: Charging Power Sensor
+      description: Sensor that measures the current charging power of the car in watts.
+      selector:
+        entity:
+          domain: sensor
+    
+    charge_at_midnight:
+      name: Charge at Midnight
+      description: >-
+        If enabled, the car will be charged starting at midnight regardless of battery SOC.
+        The charger will go back to SOC-based control after the charging session is complete.
+        This is determined by noting when the charging power drops below 100 W.
       default: false
       selector:
-        boolean:
+        entity:
+          domain: input_boolean
 
 triggers:
+  # Trigger to enable charging when SOC goes above threshold
   - trigger: numeric_state
     entity_id: !input battery_soc_sensor
     above: !input enable_charge_level
     id: enable_charging
 
+  # Trigger to disable charging when SOC drops below threshold
   - trigger: numeric_state
     entity_id: !input battery_soc_sensor
     below: !input disable_charge_level
     id: disable_charging
 
+  # This trigger starts charging at midnight if enabled
+  - trigger: time
+    at: "00:00:00"
+    id: midnight_charge
+
+variables:
+  charge_at_midnight: !input charge_at_midnight
+  charging_power_sensor: !input charging_power_sensor
+  disable_charge_level: !input disable_charge_level
+
+
 condition: []
 
 action:
   - choose:
+      # The SOC exceedes the threashold to enable charging
       - conditions:
           - condition: trigger
             id: enable_charging
         sequence:
-          - event: automation_log
-            event_data:
-              level: info
-              message: >
-                Enable car charging.
-          - if:
-              - alias: "In test mode, don't actually change the charger state"
-                condition: template
-                value_template: "{{ not test_mode }}"
-            then:
-              - service: switch.turn_on
-                target:
-                  entity_id: !input charge_enable_switch
+          - service: switch.turn_on
+            target:
+              entity_id: !input charge_enable_switch
+
+      # The SOC drops below the threshold to disable charging
       - conditions:
           - condition: trigger
             id: disable_charging
         sequence:
-          - event: automation_log
-            event_data:
-              level: info
-              message: >
-                Disable car charging.
-          - if:
-              - alias: "In test mode, don't actually change the charger state"
-                condition: template
-                value_template: "{{ not test_mode }}"
+          - service: switch.turn_off
+            target:
+              entity_id: !input charge_enable_switch
+      
+      # Start charging at midnight if enabled
+      - conditions:
+          - condition: trigger
+            id: midnight_charge
+          - "{{ is_state('charge_at_midnight', 'true') }}"
+        sequence:
+          - service: switch.turn_on
+            target:
+              entity_id: !input charge_enable_switch
+          
+          # Wait forever until charging power drops below 100 W. 
+          # Set the default to 500 W to avoid problems if the sensor is unavailable or unknown.
+          # This is hard-coded that is bad pool, but it's a simple blueprint.
+          - wait_template: >
+              {{ states(charging_power_sensor) | float(500) < 100 }}
+          
+          # After charging is complete, return to SOC-based control. 
+          # Go ahead and set the switch to the state based on current SOC.
+          # Note that charging is already enabled, so this will only disable it if needed.
+          - if: "{{ states(battery_soc_sensor) | float(0) <= disable_charge_level | float }}"
             then:
               - service: switch.turn_off
                 target:
                   entity_id: !input charge_enable_switch
+
