@@ -1,0 +1,185 @@
+blueprint:
+  name: Incentive Spirometer (IS) Tracker
+  description: >
+    Track daily incentive spirometer (IS) uses via an input_button.
+    Increments a daily counter, stores last-use time, resets at midnight,
+    and optionally sends a daily reminder if you're behind your target.
+  domain: automation
+  source_url: https://example.com/dbwal/is_tracker  # optional, cosmetic
+
+  input:
+    log_button:
+      name: IS log button
+      description: >
+        input_button that you press whenever you complete an IS set.
+      selector:
+        entity:
+          domain: input_button
+
+    uses_counter:
+      name: IS daily uses counter
+      description: >
+        counter helper that tracks how many IS sets you've done today.
+      selector:
+        entity:
+          domain: counter
+
+    last_use_datetime:
+      name: IS last use datetime
+      description: >
+        input_datetime helper (date+time) where last IS use is stored.
+      selector:
+        entity:
+          domain: input_datetime
+
+    daily_target:
+      name: IS daily target (input_number)
+      description: >
+        input_number helper that holds your daily IS target count.
+      selector:
+        entity:
+          domain: input_number
+
+    reset_time:
+      name: Daily reset time
+      description: Time of day to reset the daily counter.
+      default: "00:00:00"
+      selector:
+        time: {}
+
+    enable_reminder:
+      name: Enable reminder
+      description: >
+        If enabled, send a reminder at the reminder time when you still
+        have remaining IS sets.
+      default: false
+      selector:
+        boolean: {}
+
+    reminder_time:
+      name: Daily reminder time
+      description: >
+        Time of day to check progress and (optionally) send a reminder.
+        You can create multiple automations from this blueprint if you
+        want multiple reminder times.
+      default: "21:00:00"
+      selector:
+        time: {}
+
+    notify_service:
+      name: Notify service (optional)
+      description: >
+        Full notify service id, e.g. notify.mobile_app_davids_iphone.
+        Leave blank to use a persistent_notification instead.
+      default: ""
+      selector:
+        text: {}
+
+mode: single
+max_exceeded: silent
+
+variables:
+  v_uses_counter: !input uses_counter
+  v_last_use: !input last_use_datetime
+  v_daily_target_entity: !input daily_target
+  v_notify_service: !input notify_service
+  v_enable_reminder: !input enable_reminder
+
+trigger:
+  # Pressing the log button
+  - id: log
+    platform: state
+    entity_id: !input log_button
+
+  # Midnight (or whenever) reset
+  - id: reset
+    platform: time
+    at: !input reset_time
+
+  # Reminder time
+  - id: reminder
+    platform: time
+    at: !input reminder_time
+
+action:
+  - choose:
+      # ----------------------------------------------------------
+      # 1) Log use when button is pressed
+      # ----------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: log
+        sequence:
+          - service: counter.increment
+            target:
+              entity_id: !input uses_counter
+
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_use_datetime
+            data:
+              timestamp: "{{ now().timestamp() }}"
+
+          - service: logbook.log
+            data:
+              name: "IS Tracker"
+              message: >
+                Incentive spirometer use logged
+                ({{ states(v_uses_counter) }} uses today).
+              entity_id: !input uses_counter
+
+      # ----------------------------------------------------------
+      # 2) Daily reset
+      # ----------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: reset
+        sequence:
+          - service: counter.reset
+            target:
+              entity_id: !input uses_counter
+
+      # ----------------------------------------------------------
+      # 3) Reminder if behind schedule
+      # ----------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: reminder
+          - condition: template
+            value_template: "{{ v_enable_reminder | bool }}"
+        sequence:
+          - variables:
+              used: "{{ states(v_uses_counter) | int(0) }}"
+              target: "{{ states(v_daily_target_entity) | int(0) }}"
+              remaining: "{{ [target - used, 0] | max }}"
+              progress: >
+                {% if target > 0 %}
+                  {{ ((used / target) * 100) | round(0) }}
+                {% else %}
+                  0
+                {% endif %}
+
+          # Only bother if there is work left to do
+          - condition: template
+            value_template: "{{ remaining > 0 }}"
+
+          - choose:
+              # If notify service is provided, use it
+              - conditions:
+                  - condition: template
+                    value_template: "{{ v_notify_service | length > 0 }}"
+                sequence:
+                  - service: "{{ v_notify_service }}"
+                    data:
+                      title: "Incentive Spirometer Reminder"
+                      message: >
+                        You still have {{ remaining }} IS sets left today
+                        ({{ progress }}% complete).
+            # Otherwise, use a persistent notification
+            default:
+              - service: persistent_notification.create
+                data:
+                  title: "Incentive Spirometer Reminder"
+                  message: >
+                    You still have {{ remaining }} IS sets left today
+                    ({{ progress }}% complete).

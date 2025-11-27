@@ -43,6 +43,17 @@ blueprint:
         entity:
           domain: sensor
     
+    charging_stop_power:
+      name: Charging Stop Power (W)
+      description: >
+        Power threshold (in watts) below which the car is considered to have finished charging.
+        This is used when charging at midnight to determine when to stop charging.
+      default: 100
+      selector:
+        number:
+          min: 0
+          step: 1
+    
     charge_at_midnight:
       name: Charge at Midnight
       description: >-
@@ -53,7 +64,7 @@ blueprint:
       selector:
         entity:
           domain: input_boolean
-
+    
 triggers:
   # Trigger to enable charging when SOC goes above threshold
   - trigger: numeric_state
@@ -76,7 +87,8 @@ variables:
   charge_at_midnight: !input charge_at_midnight
   charging_power_sensor: !input charging_power_sensor
   disable_charge_level: !input disable_charge_level
-
+  charging_stop_power: !input charging_stop_power
+  battery_soc_sensor: !input battery_soc_sensor
 
 condition: []
 
@@ -104,18 +116,28 @@ action:
       - conditions:
           - condition: trigger
             id: midnight_charge
-          - "{{ is_state('charge_at_midnight', 'true') }}"
+          - "{{ is_state(charge_at_midnight, 'on') }}"
         sequence:
           - service: switch.turn_on
             target:
               entity_id: !input charge_enable_switch
           
-          # Wait forever until charging power drops below 100 W. 
-          # Set the default to 500 W to avoid problems if the sensor is unavailable or unknown.
-          # This is hard-coded that is bad pool, but it's a simple blueprint.
+          # Delay to allow charging to start
           - wait_template: >
-              {{ states(charging_power_sensor) | float(500) < 100 }}
+              {{ states(charging_power_sensor) | float(0) > charging_stop_power }}
+            timeout: "00:15:00"
           
+          # Wait forever until charging power drops below the stop power threshold. 
+          # Set the default to charging_stop_power to avoid problems if the sensor is unavailable or unknown.
+          - wait_template: >
+              {{ is_state(charge_at_midnight, 'off') or 
+                  states(charging_power_sensor) | float(charging_stop_power) < charging_stop_power }}
+          
+          # Disable control after charging is complete
+          - service: switch.turn_off
+            target:
+              entity_id: !input charge_at_midnight
+
           # After charging is complete, return to SOC-based control. 
           # Go ahead and set the switch to the state based on current SOC.
           # Note that charging is already enabled, so this will only disable it if needed.
