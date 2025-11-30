@@ -1,0 +1,21 @@
+# this is a counter for the IS blueprint
+counter:
+  is_uses_lifetime:
+    name: IS Uses Lifetime
+    minimum: 21
+    step: 1
+
+# This is the correspondsing utility meter for the IS blueprint. From it, daily uses can be computed.
+utility_meter:
+  is_daily_uses:
+    name: IS Daily Uses
+    source: sensor.is_uses_lifetime_sensor
+    cycle: daily
+
+template:
+  - sensor:
+      - name: IS Uses Lifetime (sensor)
+        unique_id: is_uses_lifetime_sensor
+        state_class: total_increasing
+        unit_of_measurement: "sessions"
+        state: "{{ states('counter.is_uses_lifetime') | int(0) }}"

@@ -5,75 +5,99 @@ blueprint:
     Increments a daily counter, stores last-use time, resets at midnight,
     and optionally sends a daily reminder if you're behind your target.
   domain: automation
-  source_url: https://example.com/dbwal/is_tracker  # optional, cosmetic
+  source_url: https://raw.githubusercontent.com/dbwalker0min/home-assistant-blueprints/refs/heads/main/blueprints/automation/dbwalker0min/is_tracker.yaml
 
   input:
     log_button:
       name: IS log button
       description: >
-        input_button that you press whenever you complete an IS set.
+        `input_button` that you press whenever you complete an IS set.
       selector:
         entity:
           domain: input_button
 
     uses_counter:
-      name: IS daily uses counter
+      name: IS uses counter
       description: >
-        counter helper that tracks how many IS sets you've done today.
+        counter that tracks how many IS sets you've done cumulatively.
       selector:
         entity:
           domain: counter
 
+    daily_uses_sensor: 
+      name: Daily IS uses sensor
+      description: >
+        Template sensor that shows how many IS sets you've done today.
+        This is optional, but useful for displaying in the UI.
+      selector:
+        entity:
+          integration: utility_meter
+
     last_use_datetime:
       name: IS last use datetime
       description: >
-        input_datetime helper (date+time) where last IS use is stored.
+        input_datetime helper where last IS use is stored.
       selector:
         entity:
           domain: input_datetime
 
     daily_target:
-      name: IS daily target (input_number)
+      name: IS daily target
       description: >
-        input_number helper that holds your daily IS target count.
+        Daily IS target count. The reminder interval is computed based on this value.
       selector:
-        entity:
-          domain: input_number
+        number:
+          min: 1
+          step: 1
 
-    reset_time:
-      name: Daily reset time
-      description: Time of day to reset the daily counter.
-      default: "00:00:00"
+    reminder_start_time:
+      name: Daily reminder start time
+      description: >
+        Time of day to start generating reminders if you're behind your target.
+      default: "10:00:00"
       selector:
         time: {}
 
-    enable_reminder:
-      name: Enable reminder
+    reminder_end_time:
+      name: Daily reminder end time
       description: >
-        If enabled, send a reminder at the reminder time when you still
-        have remaining IS sets.
-      default: false
-      selector:
-        boolean: {}
-
-    reminder_time:
-      name: Daily reminder time
-      description: >
-        Time of day to check progress and (optionally) send a reminder.
-        You can create multiple automations from this blueprint if you
-        want multiple reminder times.
+        Time of day to stop generating reminders.
       default: "21:00:00"
       selector:
         time: {}
 
-    notify_service:
-      name: Notify service (optional)
+    notify_services:
+      name: Notify service
       description: >
-        Full notify service id, e.g. notify.mobile_app_davids_iphone.
-        Leave blank to use a persistent_notification instead.
-      default: ""
+        Device or devices for notifications.
       selector:
-        text: {}
+        device:
+          integration: mobile_app
+          multiple: true
+
+    notification_sent:
+      name: Notification sent datetime
+      description: >
+        Datetime used to store when the last reminder notification was sent.
+      selector:
+        entity:
+          domain: input_datetime
+
+    mute_for_today:
+      name: Mute reminders for today
+      description: >
+        If enabled, no reminders will be sent for the rest of the day.
+      selector:
+        entity:
+          domain: input_boolean
+
+    min_between_notifications:
+      name: Minimum time between notifications (minutes)
+      description: >
+        Minimum time interval between reminder notifications.
+      default: { hours: 0, minutes: 30, seconds: 0 }
+      selector:
+        duration:
 
 mode: single
 max_exceeded: silent
@@ -81,9 +105,29 @@ max_exceeded: silent
 variables:
   v_uses_counter: !input uses_counter
   v_last_use: !input last_use_datetime
-  v_daily_target_entity: !input daily_target
-  v_notify_service: !input notify_service
-  v_enable_reminder: !input enable_reminder
+  v_daily_target: !input daily_target
+  v_reminder_start_time: !input reminder_start_time
+  v_reminder_end_time: !input reminder_end_time
+  v_notification_sent: !input notification_sent
+  v_mute_for_today: !input mute_for_today
+  v_min_between_notifications: !input min_between_notifications
+  v_daily_uses_sensor: !input daily_uses_sensor
+  # Converting duration to seconds for easier comparison
+  v_min_between_notifications_seconds: >
+    {% set t = v_min_between_notifications %}
+    {{ (t.hours * 60 + t.minutes) * 60 + t.seconds }}
+  expected_uses: >
+    {% set start_time = today_at(v_reminder_start_time) %}
+    {% set end_time = today_at(v_reminder_end_time) %}
+    {% set delta_t_window = end_time - start_time %}
+    {% set delta_t_now = now() - start_time %}
+    {% if delta_t_window.total_seconds() <= 0 %}
+      {{ v_daily_target }}
+    {% else %}
+      {{ (v_daily_target | float(0)) *
+         (delta_t_now.total_seconds() /
+          delta_t_window.total_seconds()) }}
+    {% endif %}
 
 trigger:
   # Pressing the log button
@@ -91,15 +135,33 @@ trigger:
     platform: state
     entity_id: !input log_button
 
-  # Midnight (or whenever) reset
+  # Reset the app at the reminder start time
   - id: reset
     platform: time
-    at: !input reset_time
+    at: !input reminder_start_time
 
-  # Reminder time
-  - id: reminder
-    platform: time
-    at: !input reminder_time
+  # Reminder update
+  - id: reminder update
+    trigger: time_pattern
+    minutes: "/1"
+
+  - id: action_log_session
+    platform: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: IS_LOG_SESSION
+    
+  - id: action_mute_today
+    platform: event
+    event_type: mobile_app_notification_action
+    event_data:
+      action: IS_MUTE_TODAY
+
+  - id: action_dismiss
+    platform: event 
+    event_type: mobile_app_notification_action
+    event_data:
+      action: IS_DISMISS
 
 action:
   - choose:
@@ -107,9 +169,13 @@ action:
       # 1) Log use when button is pressed
       # ----------------------------------------------------------
       - conditions:
-          - condition: trigger
-            id: log
+          - or:
+            - condition: trigger
+              id: log
+            - condition: trigger
+              id: action_log_session
         sequence:
+          # Increment the uses counter
           - service: counter.increment
             target:
               entity_id: !input uses_counter
@@ -120,12 +186,25 @@ action:
             data:
               timestamp: "{{ now().timestamp() }}"
 
+          # Clear all notifications
+          - &CLEAR_ALL_NOTIFICATIONS
+            repeat:
+              for_each: !input notify_services
+              sequence:
+                - service: >
+                    {% set dev_name = device_attr(repeat.item, 'name') %}
+                    {{ 'notify.mobile_app_' ~ (dev_name | slugify) }}
+                  data:
+                    data:
+                      tag: is_tracker_reminder
+                    message: "clear_notification"
+
           - service: logbook.log
             data:
               name: "IS Tracker"
               message: >
                 Incentive spirometer use logged
-                ({{ states(v_uses_counter) }} uses today).
+                ({{ states(v_daily_uses_sensor) }} sessions today).
               entity_id: !input uses_counter
 
       # ----------------------------------------------------------
@@ -135,51 +214,103 @@ action:
           - condition: trigger
             id: reset
         sequence:
-          - service: counter.reset
+          - service: input_boolean.turn_off
             target:
-              entity_id: !input uses_counter
+              entity_id: !input mute_for_today
+          
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input notification_sent
+            data:
+              timestamp: "{{ today_at(v_reminder_start_time).timestamp() }}"
+          
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input last_use_datetime
+            data:
+              timestamp: "{{ today_at(v_reminder_start_time).timestamp() }}"
+
+          # Clear all notifications just to be double-dog sure
+          - *CLEAR_ALL_NOTIFICATIONS
 
       # ----------------------------------------------------------
       # 3) Reminder if behind schedule
       # ----------------------------------------------------------
       - conditions:
           - condition: trigger
-            id: reminder
-          - condition: template
-            value_template: "{{ v_enable_reminder | bool }}"
+            id: reminder update
+          # Only send reminders during the specified time window
+          - >
+            {{ now() >= today_at(v_reminder_start_time) and
+               now() <= today_at(v_reminder_end_time) }}
+          # Only send reminders if last use was more than min_between_notifications seconds ago
+          - "{{ (now() | as_timestamp) - (states(v_last_use) | as_timestamp(0)) > v_min_between_notifications_seconds }}"
+          # Only send reminders if last notification was more than min_between_notifications seconds ago
+          - >
+            {{ (now() | as_timestamp) - (states(v_notification_sent) | as_timestamp(0))
+               > v_min_between_notifications_seconds }}
+          # Only send reminders if not muted for today
+          - "{{ is_state(v_mute_for_today, 'off') }}"
+          # Only send reminders if I'm behind schedule
+          - >
+            {{ (expected_uses | float(0)) > (states(v_daily_uses_sensor) | float(0)) }}
+
         sequence:
-          - variables:
-              used: "{{ states(v_uses_counter) | int(0) }}"
-              target: "{{ states(v_daily_target_entity) | int(0) }}"
-              remaining: "{{ [target - used, 0] | max }}"
-              progress: >
-                {% if target > 0 %}
-                  {{ ((used / target) * 100) | round(0) }}
-                {% else %}
-                  0
-                {% endif %}
-
-          # Only bother if there is work left to do
-          - condition: template
-            value_template: "{{ remaining > 0 }}"
-
-          - choose:
-              # If notify service is provided, use it
-              - conditions:
-                  - condition: template
-                    value_template: "{{ v_notify_service | length > 0 }}"
-                sequence:
-                  - service: "{{ v_notify_service }}"
+          - repeat:
+              for_each: !input notify_services
+              sequence:
+                - service: >
+                    {% set dev_name = device_attr(repeat.item, 'name') %}
+                    {{ 'notify.mobile_app_' + (dev_name | slugify) }}
+                  data:
+                    title: IS Use Reminder
+                    message: >
+                      You have done {{ states(v_daily_uses_sensor) }} out of
+                      {{ v_daily_target }} sessions.
+                      The last session was at {{ states(v_last_use)  | as_timestamp | timestamp_custom("%I:%M:%S") }}.
                     data:
-                      title: "Incentive Spirometer Reminder"
-                      message: >
-                        You still have {{ remaining }} IS sets left today
-                        ({{ progress }}% complete).
-            # Otherwise, use a persistent notification
-            default:
-              - service: persistent_notification.create
-                data:
-                  title: "Incentive Spirometer Reminder"
-                  message: >
-                    You still have {{ remaining }} IS sets left today
-                    ({{ progress }}% complete).
+                      tag: is_tracker_reminder
+                      actions:
+                        - action: IS_LOG_SESSION
+                          title: Log IS use
+                        - action: IS_MUTE_TODAY
+                          title: Mute for today
+                        - action: IS_DISMISS
+                          title: Dismiss
+
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input notification_sent
+            data:
+              timestamp: "{{ now().timestamp() }}"
+
+      # ----------------------------------------------------------
+      # 4) Mute for today action
+      # ----------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: action_mute_today
+        sequence:
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input mute_for_today
+
+          # Clear all notifications
+          - *CLEAR_ALL_NOTIFICATIONS
+    
+      # ----------------------------------------------------------
+      # 5) Dismiss action
+      # ----------------------------------------------------------
+      - conditions:
+          - condition: trigger
+            id: action_dismiss
+        sequence:
+          # Reset the notification sent time to now to delay further notifications
+          - service: input_datetime.set_datetime
+            target:
+              entity_id: !input notification_sent
+            data:
+              timestamp: "{{ now().timestamp() }}"
+
+          # Clear all notifications
+          - *CLEAR_ALL_NOTIFICATIONS
