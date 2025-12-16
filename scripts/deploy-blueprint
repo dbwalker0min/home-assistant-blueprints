@@ -1,29 +1,52 @@
 #!/bin/bash
-# Usage: deploy-blueprint <source-file> <type>
-# <type> can be 'automation' or 'script'
+# Usage: deploy-blueprint <source-file> <type> <relative-path>
 
 set -euo pipefail
 SRC="$1"
-TYPE="${2:-automation}"  # default to automation
-BASENAME="$(basename "$SRC")"
+TYPE="${2:-}"
+REL="${3:-}"
 
-if [[ "$TYPE" == "script" ]]; then
-  TARGET_DIR="/config/scripts/dbwalker0min"
-  SERVICE="script"
-else
-  TARGET_DIR="/config/blueprints/automation/dbwalker0min"
-  SERVICE="automation"
+if [[ -z "$TYPE" || -z "$REL" ]]; then
+  echo "Usage: deploy-blueprint <source-file> <type> <relative-path>" >&2
+  exit 2
 fi
 
-sudo -n mkdir -p "$TARGET_DIR"
-sudo -n mv "$SRC" "$TARGET_DIR/$BASENAME"
+case "$TYPE" in
+  script)
+    TARGET_BASE="/config/scripts"
+    DOMAIN="script"
+    SERVICE="reload"
+    ;;
+  package)
+    TARGET_BASE="/config/packages"
+    DOMAIN="homeassistant"
+    SERVICE="reload_core_config"
+    ;;
+  automation)
+    TARGET_BASE="/config/blueprints/automation"
+    DOMAIN="automation"
+    SERVICE="reload"
+    ;;
+  *)
+    echo "❌ Unknown type: $TYPE (expected: automation, script, package)" >&2
+    exit 1
+    ;;
+esac
 
-if [[ -r ~/.ha_token ]]; then
-  TOKEN=$(<~/.ha_token)
-  curl -fsS -X POST -H "Authorization: Bearer $TOKEN" \
-       -H "Content-Type: application/json" \
-       "http://127.0.0.1:8123/api/services/$SERVICE/reload" >/dev/null ||
-  sudo -n ha core restart
+TARGET_PATH="$TARGET_BASE/$REL"
+TOKEN_FILE="/config/.ha_token"
+
+sudo -n mkdir -p "$(dirname "$TARGET_PATH")"
+sudo -n mv "$SRC" "$TARGET_PATH"
+
+if [[ -r "$TOKEN_FILE" ]]; then
+  TOKEN="$(<"$TOKEN_FILE")"
+  curl -fsS -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    "http://127.0.0.1:8123/api/services/$DOMAIN/$SERVICE" \
+    -d '{}' >/dev/null \
+  || sudo -n ha core restart
 else
   sudo -n ha core restart
 fi

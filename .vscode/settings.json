@@ -1,0 +1,7 @@
+{
+  "yaml.customTags": [
+    "!input scalar",
+    "!input mapping",
+    "!input sequence"
+  ]
+}

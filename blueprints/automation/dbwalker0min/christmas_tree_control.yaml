@@ -1,0 +1,224 @@
+blueprint:
+  name: Christmas Tree RF Controller (Mode + Brightness + Reset)
+  description: >
+    Controls a Christmas tree RF controller via 3 button entities:
+    Mode cycles through modes; Light-/Light+ adjust brightness 0..12.
+    Uses helpers to track internal state and supports a Reset that forces
+    brightness to 0 on the next brightness change before setting target.
+  domain: automation
+
+  input:
+    rf_mode_button:
+      name: RF Mode button
+      selector:
+        entity:
+          domain: button
+
+    rf_light_minus_button:
+      name: RF Light- button
+      selector:
+        entity:
+          domain: button
+
+    rf_light_plus_button:
+      name: RF Light+ button
+      selector:
+        entity:
+          domain: button
+
+    desired_mode:
+      name: Desired mode (dropdown helper)
+      description: input_select with options matching the modes below.
+      selector:
+        entity:
+          domain: input_select
+
+    desired_brightness:
+      name: Desired brightness (slider helper)
+      description: input_number (min 0, max 12, step 1).
+      selector:
+        entity:
+          domain: input_number
+
+    reset_button:
+      name: Reset button (helper)
+      description: input_button that indicates the tree is OFF and brightness is unknown.
+      selector:
+        entity:
+          domain: input_button
+
+    state_command_delay:
+      name: Command delay
+      description: Delay in ms between button presses to allow RF controller to process.
+      default: 1000
+      selector:
+        number:
+          unit_of_measurement: "ms"
+          min: 100
+          max: 2000
+          step: 50
+      
+    idle_time_delay:
+      name: Idle time delay
+      description: Minimum time in seconds that desired_mode or desired_brightness must be stable before acting.
+      default: 5
+      selector:
+        number:
+          unit_of_measurement: "s"
+          min: 1
+          max: 60
+          step: 1
+
+    state_brightness:
+      name: Internal brightness (helper)
+      description: input_number tracking current brightness (0..12).
+      selector:
+        entity:
+          domain: input_number
+    
+    state_mode_index:
+      name: Internal mode index (helper)
+      description: input_number tracking current mode index (0..5).
+      selector:
+        entity:
+          domain: input_number
+
+    reset_pending:
+      name: Reset pending flag (helper)
+      description: input_boolean; when ON, next brightness change forces 12x Light- first.
+      selector:
+        entity:
+          domain: input_boolean
+
+mode: queued
+max: 10
+
+trigger:
+  - platform: state
+    entity_id: !input desired_mode
+    for: {seconds: 5}
+  - platform: state
+    entity_id: !input desired_brightness
+    for: {seconds: 5}
+  - platform: state
+    entity_id: !input reset_button
+
+variables:
+  desired_mode_ent: !input desired_mode
+  # This is a list of all possible modes in order.
+  modes: "{{ state_attr(desired_mode_ent, 'options') }}"
+
+  rf_mode_button: !input rf_mode_button
+  rf_minus: !input rf_light_minus_button
+  rf_plus: !input rf_light_plus_button
+
+  desired_brightness_ent: !input desired_brightness
+  reset_pending_ent: !input reset_pending
+
+  state_brightness_ent: !input state_brightness
+
+  desired_mode_str: "{{ states(desired_mode_ent) }}"
+  desired_mode_idx: "{{ modes.index(desired_mode_str) }}"
+  state_mode_index_ent: !input state_mode_index
+  current_mode_idx: "{{ states(state_mode_index_ent) | int(0) }}"
+
+  current_brightness: "{{ states(state_brightness_ent) | int(0) }}"
+  desired_brightness: "{{ states(desired_brightness_ent) | int(0) }}"
+
+  reset_pending: "{{ is_state(reset_pending_ent, 'on') }}"
+
+action:
+  - choose:
+      # --- RESET ---
+      - conditions: "{{ trigger.entity_id == (reset_button | default('')) }}"
+        sequence:
+          # Mark as "unknown brightness; assume Off" (per your contract).
+          - service: input_boolean.turn_on
+            target:
+              entity_id: !input reset_pending
+          
+          # Set the mode to Off
+          - service: input_number.set_value
+            target:
+              entity_id: !input state_mode
+            data:
+              value: 0
+          - service: input_select.select_option
+            target:
+              entity_id: !input desired_mode
+            data:
+              option: "Off"
+
+      # --- MODE CHANGED ---
+      - conditions: "{{ trigger.entity_id == desired_mode_ent }}"
+        sequence:
+          # Steps forward through the ring: (target - current) mod 6
+          - variables:
+              steps: "{{ (desired_mode_idx - current_mode_idx) % 6 }}"
+          - if: "{{ steps != 0 }}"
+            then:
+            - repeat:
+                count: "{{ steps }}"
+                sequence:
+                  - service: button.press
+                    target:
+                      entity_id: "{{ rf_mode_button }}"
+                  - delay:
+                      milliseconds: !input state_command_delay
+          - service: input_number.set_value
+            target:
+              entity_id: "{{ state_mode_ent }}"
+            data:
+              value: "{{ desired_mode_idx }}"
+
+      # --- BRIGHTNESS CHANGED ---
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.entity_id == desired_brightness_ent }}"
+        sequence:
+          # If reset_pending, force brightness down to 0 first (12x Light-),
+          # then proceed to set the desired level.
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ reset_pending }}"
+                sequence:
+                  - repeat:
+                      count: 12
+                      sequence:
+                        - service: button.press
+                          target:
+                            entity_id: "{{ rf_minus }}"
+                        - delay:
+                            milliseconds: 200
+                  - service: input_number.set_value
+                    target:
+                      entity_id: "{{ state_brightness_ent }}"
+                    data:
+                      value: 0
+                  - service: input_boolean.turn_off
+                    target:
+                      entity_id: "{{ reset_pending_ent }}"
+
+          - variables:
+              # Re-read after possible reset action above
+              cur_b: "{{ states(state_brightness_ent) | int(0) }}"
+              target_b: "{{ desired_brightness | int(0) }}"
+              delta: "{{ (target_b - cur_b) | int }}"
+              press_entity: "{{ rf_plus if delta > 0 else rf_minus }}"
+              press_count: "{{ (delta | abs) | int }}"
+          - condition: template
+            value_template: "{{ press_count != 0 }}"
+          - repeat:
+              count: "{{ press_count }}"
+              sequence:
+                - service: button.press
+                  target:
+                    entity_id: "{{ press_entity }}"
+                - delay:
+                    milliseconds: 200
+          - service: input_number.set_value
+            target:
+              entity_id: "{{ state_brightness_ent }}"
+            data:
+              value: "{{ desired_brightness }}"

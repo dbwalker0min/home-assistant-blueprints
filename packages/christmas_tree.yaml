@@ -1,0 +1,43 @@
+input_select:
+  christmas_tree_mode:
+    name: Christmas Tree Mode
+    options:
+      - "Off"
+      - "White"
+      - "White Dimming"
+      - "Color"
+      - "Color Dimming"
+      - "Mixed"
+    icon: mdi:pine-tree
+
+input_number:
+  christmas_tree_brightness:
+    name: Christmas Tree Brightness
+    min: 0
+    max: 12
+    step: 1
+    icon: mdi:brightness-6
+
+  christmas_tree_mode_index:
+    name: Christmas Tree Internal Mode Index
+    min: 0
+    max: 5
+    step: 1
+    mode: box
+
+  christmas_tree_brightness_state:
+    name: Christmas Tree Internal Brightness
+    min: 0
+    max: 12
+    step: 1
+    mode: box
+
+input_boolean:
+  christmas_tree_reset_pending:
+    name: Christmas Tree Reset Pending
+    icon: mdi:sync-alert
+
+input_button:
+  christmas_tree_reset:
+    name: Reset Christmas Tree RF State
+    icon: mdi:restart

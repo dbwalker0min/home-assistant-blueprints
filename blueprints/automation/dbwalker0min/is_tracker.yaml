@@ -24,7 +24,7 @@ blueprint:
         entity:
           domain: counter
 
-    daily_uses_sensor: 
+    daily_uses_sensor:
       name: Daily IS uses sensor
       description: >
         Template sensor that shows how many IS sets you've done today.
@@ -143,14 +143,14 @@ trigger:
   # Reminder update
   - id: reminder update
     trigger: time_pattern
-    minutes: "/1"
+    minutes: "/5"
 
   - id: action_log_session
     platform: event
     event_type: mobile_app_notification_action
     event_data:
       action: IS_LOG_SESSION
-    
+
   - id: action_mute_today
     platform: event
     event_type: mobile_app_notification_action
@@ -158,7 +158,7 @@ trigger:
       action: IS_MUTE_TODAY
 
   - id: action_dismiss
-    platform: event 
+    platform: event
     event_type: mobile_app_notification_action
     event_data:
       action: IS_DISMISS
@@ -170,10 +170,10 @@ action:
       # ----------------------------------------------------------
       - conditions:
           - or:
-            - condition: trigger
-              id: log
-            - condition: trigger
-              id: action_log_session
+              - condition: trigger
+                id: log
+              - condition: trigger
+                id: action_log_session
         sequence:
           # Increment the uses counter
           - service: counter.increment
@@ -217,13 +217,13 @@ action:
           - service: input_boolean.turn_off
             target:
               entity_id: !input mute_for_today
-          
+
           - service: input_datetime.set_datetime
             target:
               entity_id: !input notification_sent
             data:
               timestamp: "{{ today_at(v_reminder_start_time).timestamp() }}"
-          
+
           - service: input_datetime.set_datetime
             target:
               entity_id: !input last_use_datetime
@@ -297,7 +297,7 @@ action:
 
           # Clear all notifications
           - *CLEAR_ALL_NOTIFICATIONS
-    
+
       # ----------------------------------------------------------
       # 5) Dismiss action
       # ----------------------------------------------------------

@@ -1,33 +1,64 @@
-param (
-    [Parameter(Mandatory = $true)]
-    [string]$Path
+param(
+  [Parameter(Mandatory=$true)]
+  [string]$Path
 )
 
-$haHost = "ha"
-$tmpRemote = "/tmp"
-$fileName = Split-Path $Path -Leaf
+$haHost  = "ha"
+$tmpRoot = "/tmp/ha-deploy"
 
+$full = (Resolve-Path $Path).Path
 
-# Detect type based on path
-if ($Path -match "automation[\\/]+dbwalker0min") {
-    $type = "automation"
-} elseif ($Path -match "script[\\/]+dbwalker0min") {
-    $type = "script"
-} else {
-    Write-Error "❌ Unknown type (expected automation\\dbwalker0min or script\\dbwalker0min)"
-    exit 1
+# Find git repo root
+$repoRoot = (git -C (Split-Path $full -Parent) rev-parse --show-toplevel 2>$null).Trim()
+if (-not $repoRoot) {
+  Write-Error "❌ Could not determine git repo root for: $full"
+  exit 1
 }
 
-Write-Host "📤 Uploading $fileName to ${haHost}:${tmpRemote} ..."
-# Write-Host "scp -O $Path `"${haHost}:${tmpRemote}/${fileName}`""
-scp -O $Path "${haHost}:${tmpRemote}/${fileName}"
-if ($?) {
-  Write-Host "Command succeeded."
-} else {
-  Write-Host "Command failed."
-}
-Write-Host "🔧 Deploying via helper script on HA ..."
-Write-Host "ssh $haHost `"/config/bin/deploy-blueprint ${tmpRemote}/${fileName} ${type}`""
-ssh $haHost "sudo /config/bin/deploy-blueprint ${tmpRemote}/${fileName} ${type}"
+# Compute repo-relative path with forward slashes
+$rel = $full.Substring($repoRoot.Length).TrimStart('\','/')
+$relUnix = $rel -replace '\\','/'
+$tmpRoot = "~/.cache/ha-deploy"   # <-- user-owned, no sudo needed
 
-Write-Host "✅ Deployment complete! (${type} → ${fileName})"
+
+Write-Output "relative path: $relUnix"
+
+$type = $null
+$targetRel = $null
+
+if ($relUnix -like "packages/*") {
+  $type = "package"
+  $targetRel = $relUnix.Substring("packages/".Length)
+}
+elseif ($relUnix -like "scripts/*") {
+  $type = "script"
+  $targetRel = $relUnix.Substring("scripts/".Length)
+}
+elseif ($relUnix -like "blueprints/automation/*") {
+  $type = "automation"
+  $targetRel = $relUnix.Substring("blueprints/automation/".Length)
+}
+else {
+  Write-Error "❌ File is not under packages/, scripts/, or blueprints/automation/: $relUnix"
+  exit 1
+}
+
+$remotePath = "$tmpRoot/$type/$targetRel"
+$remoteDir  = ($remotePath -replace '/[^/]+$','')
+
+Write-Host "📤 Uploading $full → ${haHost}:$remotePath"
+
+# Create remote dir as *your ssh user* (no sudo)
+ssh $haHost "mkdir -p '$remoteDir'"
+if (-not $?) { throw "ssh mkdir failed" }
+
+# scp as your ssh user (no root@)
+scp -O "$full" "${haHost}:`"$remotePath`""
+if (-not $?) { throw "scp failed" }
+
+# Deploy (sudo only for moving into /config and reload/restart)
+Write-Host "🔧 Deploying on HA (type=$type, rel=$targetRel)"
+ssh $haHost "sudo /config/bin/deploy-blueprint '$remotePath' '$type' '$targetRel'"
+if (-not $?) { throw "deploy on HA failed" }
+
+Write-Host "✅ Deployment complete!"

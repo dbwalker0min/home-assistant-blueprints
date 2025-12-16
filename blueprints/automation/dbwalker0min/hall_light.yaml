@@ -113,8 +113,23 @@ actions:
           - condition: trigger
             id: motion_detected
         sequence:
+          - variables:
+              will_turn_on: >
+                {{ states(lux_sensor) | float < lux_threshold | float }}
+
+          # Send an entry to the log of the lumance level irregardless of conditions
+          - service: system_log.write
+            data:
+              message: >
+                Hall light automation: 
+                Current illuminance is {{ states(lux_sensor) }} lx; threshold is {{ lux_threshold }} lx.
+                {% if will_turn_on | bool %}
+                  Light on.
+                {% else %}
+                  Light off.
+                {% endif %}
           # Check the illuminance level
-          - if: "{{ states(lux_sensor) | float < lux_threshold | float }}"
+          - if: "{{ will_turn_on }}"
             then:
               # Check if current time is within dimming hours
               - if: 
