@@ -1,0 +1,19 @@
+script:
+  variables:
+    light_entity: light.outdoor_christmas_lights
+  fields:
+    state:
+      required: true
+
+  sequence:
+    - choose:
+        - conditions: "{{ state == 'on' }}"
+        - sequence:
+            - service: light.turn_on
+              target:
+                entity_id: "{{ light_entity }}"
+        - conditions: "{{ state == 'off' }}"
+          sequence:
+            - service: light.turn_off
+              target:
+                entity_id: "{{ light_entity }}"
