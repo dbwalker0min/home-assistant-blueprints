@@ -1,4 +1,5 @@
 input_select:
+  # This is a control to set the mode of the Christmas tree lights.
   christmas_tree_mode:
     name: Christmas Tree Mode
     options:
@@ -11,6 +12,7 @@ input_select:
     icon: mdi:pine-tree
 
 input_number:
+  # This is a control to set the brightness level of the Christmas tree lights.
   christmas_tree_brightness:
     name: Christmas Tree Brightness
     min: 0
@@ -18,26 +20,18 @@ input_number:
     step: 1
     icon: mdi:brightness-6
 
-  christmas_tree_mode_index:
-    name: Christmas Tree Internal Mode Index
+  # This keeps the internal state of the Christmas tree mode, brightness, and if a reset is pending.
+  # It is formed by brightness + mode*16. If reset is pending for the next brightness change, the brightness
+  # value is set to 15.
+  christmas_tree_state:
+    name: Christmas Tree Internal State
     min: 0
-    max: 5
-    step: 1
+    max: 256
     mode: box
-
-  christmas_tree_brightness_state:
-    name: Christmas Tree Internal Brightness
-    min: 0
-    max: 12
-    step: 1
-    mode: box
-
-input_boolean:
-  christmas_tree_reset_pending:
-    name: Christmas Tree Reset Pending
-    icon: mdi:sync-alert
 
 input_button:
+  # This button resets the Christmas tree to Off mode and sets a flag to calibrate brightness
   christmas_tree_reset:
-    name: Reset Christmas Tree RF State
+    name: Christmas Tree Reset
     icon: mdi:restart
+    

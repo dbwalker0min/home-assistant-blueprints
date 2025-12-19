@@ -15,9 +15,6 @@ blueprint:
       description: Motion sensor that detects movement in front of the door.
       selector:
         entity:
-          # this is what you said you have
-          include_entities:
-            - event.front_door_motion
 
     light_brightness:
       name: Light Brightness

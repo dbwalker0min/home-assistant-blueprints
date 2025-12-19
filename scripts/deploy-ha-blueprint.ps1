@@ -38,6 +38,10 @@ elseif ($relUnix -like "blueprints/automation/*") {
   $type = "automation"
   $targetRel = $relUnix.Substring("blueprints/automation/".Length)
 }
+elseif ($relUnix -like "dashboards/*") {
+  $type = "dashboard"
+  $targetRel = $relUnix.Substring("dashboards/".Length)
+}
 else {
   Write-Error "❌ File is not under packages/, scripts/, or blueprints/automation/: $relUnix"
   exit 1

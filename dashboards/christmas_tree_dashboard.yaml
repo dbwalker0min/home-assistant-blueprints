@@ -1,0 +1,63 @@
+type: vertical-stack
+cards:
+  - type: entities
+    title: Controls
+    show_header_toggle: false
+    entities:
+      - entity: input_select.christmas_tree_mode
+        name: Desired mode
+      - entity: input_number.christmas_tree_brightness
+        name: Desired brightness (0–12)
+
+  - type: grid
+    columns: 3
+    square: false
+    cards:
+      - type: button
+        name: Reset / Calibrate
+        icon: mdi:restart
+        tap_action:
+          action: call-service
+          service: input_button.press
+          target:
+            entity_id: input_button.christmas_tree_reset
+
+      - type: button
+        name: Mode +
+        icon: mdi:autorenew
+        tap_action:
+          action: call-service
+          service: button.press
+          target:
+            entity_id: button.tree_rf_bridge_tree_mode
+
+      - type: button
+        name: Bright +
+        icon: mdi:brightness-5
+        tap_action:
+          action: call-service
+          service: button.press
+          target:
+            entity_id: button.tree_rf_bridge_tree_light_plus
+
+  - type: grid
+    columns: 2
+    square: false
+    cards:
+      - type: button
+        name: Bright –
+        icon: mdi:brightness-4
+        tap_action:
+          action: call-service
+          service: button.press
+          target:
+            entity_id: button.tree_rf_bridge_tree_light_minus
+
+      - type: button
+        name: Apply settings
+        icon: mdi:check-bold
+        tap_action:
+          action: call-service
+          service: automation.trigger
+          target:
+            entity_id: automation.christmas_tree_rf_controller_mode_brightness_reset

@@ -1,0 +1,6 @@
+
+christmas-tree:
+  mode: yaml
+  title: Christmas Tree
+  icon: mdi:pine-tree
+  filename: dashboards/christmas_tree.yaml
