@@ -1,0 +1,62 @@
+automation:
+  alias: "Stairs Light Control"
+  id: "stairs_light_control"
+
+  variables:
+    stairs_motion_occupancy: &STAIRS_MOTION "binary_sensor.stairs_motion_occupancy"
+    tv_state: &TV_STATE "media_player.lg_webos_tv_oled65b6p"
+    stairs_light: &STAIRS_LIGHT "light.stairs_light"
+    stairs_motion_scene: &STAIRS_MOTION_SCENE "scene.stairs_motion"
+    stairs_tv_on_scene: &STAIRS_TV_ON_SCENE "scene.stairs_tv_on"
+
+  triggers:
+    - alias: "Stairs Light On Motion"
+      trigger: state
+      entity_id: *STAIRS_MOTION
+      to: "on"
+      id: "stairs_motion"
+    - alias: "Stairs Light with TV On"
+      trigger: state
+      entity_id: *TV_STATE
+      to: "on"
+      id: "tv_on"
+    - alias: "Stairs Light with TV Off"
+      trigger: state
+      entity_id: *TV_STATE
+      to: "off"
+      id: "tv_off"
+  action:
+    - choose:
+        - conditions: "{{ trigger.trigger_id == 'stairs_motion' }}"
+          sequence:
+            - service: scene.turn_on
+              target:
+                entity_id: *STAIRS_MOTION_SCENE
+
+            # Keep the light on for 1 minute after motion stops
+            - wait_for_trigger:
+                - platform: state
+                  entity_id: *STAIRS_MOTION
+                  to: "off"
+                  for: "00:01:00"
+            - if: "{{ is_state(tv_state, 'on') }}"
+              then:
+                - service: scene.turn_on
+                  target:
+                    entity_id: *STAIRS_TV_ON_SCENE
+              else:
+                - service: light.turn_off
+                  target:
+                    entity_id: *STAIRS_LIGHT
+
+        - conditions: "{{ trigger.trigger_id == 'tv_on' }}"
+          sequence:
+            - service: scene.turn_on
+              target:
+                entity_id: *STAIRS_TV_ON_SCENE
+
+        - conditions: "{{ trigger.trigger_id == 'tv_off' }}"
+          sequence:
+            - service: scene.turn_on
+              target:
+                entity_id: *STAIRS_MOTION_SCENE
