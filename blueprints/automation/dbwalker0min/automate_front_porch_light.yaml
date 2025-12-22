@@ -78,7 +78,7 @@ variables:
   debug_mode: !input debug_mode
   sun_state: >
     {% if (debug_mode | bool) %}
-      states('sun.sun')
+      {{ states('sun.sun') }}
     {% else %}
       below_horizon
     {% endif %}
