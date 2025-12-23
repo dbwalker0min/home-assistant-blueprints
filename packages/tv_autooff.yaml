@@ -1,0 +1,26 @@
+automation:
+  alias: "TV Auto Off"
+  description: >
+    Turn off the TV after a period of idleness on the Roku device.
+  id: "tv_auto_off"
+
+  variables:
+    tv_state: &TV_STATE "media_player.lg_webos_tv_oled65b6p"
+    roku_state: &ROKU_STATE "media_player.roku_streambar"
+    tv_auto_off_delay: &TV_AUTO_OFF_DELAY "00:10:00"
+
+  triggers:
+    - alias: "Roku state changed"
+      trigger: state
+      entity_id: *ROKU_STATE
+      id: "roku_idle"
+      to: "idle"
+      for: *TV_AUTO_OFF_DELAY
+
+  action:
+    - if:
+        - "{{ is_state(tv_state, 'on') }}"
+      then:
+        - service: media_player.turn_off
+          target:
+            entity_id: *TV_STATE

@@ -15,6 +15,12 @@ automation:
       entity_id: *STAIRS_MOTION
       to: "on"
       id: "stairs_motion"
+    - alias: "Stairs Light Off Motion"
+      trigger: state
+      entity_id: *STAIRS_MOTION
+      to: "off"
+      for: "00:01:00"
+      id: "stairs_no_motion"
     - alias: "Stairs Light with TV On"
       trigger: state
       entity_id: *TV_STATE
@@ -27,36 +33,41 @@ automation:
       id: "tv_off"
   action:
     - choose:
-        - conditions: "{{ trigger.trigger_id == 'stairs_motion' }}"
+        - conditions: "{{ trigger.id == 'stairs_motion' }}"
           sequence:
             - service: scene.turn_on
               target:
                 entity_id: *STAIRS_MOTION_SCENE
+              data:
+                transition: 1
 
-            # Keep the light on for 1 minute after motion stops
-            - wait_for_trigger:
-                - platform: state
-                  entity_id: *STAIRS_MOTION
-                  to: "off"
-                  for: "00:01:00"
-            - if: "{{ is_state(tv_state, 'on') }}"
-              then:
-                - service: scene.turn_on
-                  target:
-                    entity_id: *STAIRS_TV_ON_SCENE
-              else:
-                - service: light.turn_off
-                  target:
-                    entity_id: *STAIRS_LIGHT
-
-        - conditions: "{{ trigger.trigger_id == 'tv_on' }}"
+        - conditions: "{{ trigger.id == 'tv_on' }}"
           sequence:
             - service: scene.turn_on
               target:
                 entity_id: *STAIRS_TV_ON_SCENE
+              data:
+                transition: 5
 
-        - conditions: "{{ trigger.trigger_id == 'tv_off' }}"
+        - conditions: "{{ trigger.id == 'tv_off' }}"
           sequence:
             - service: scene.turn_on
               target:
                 entity_id: *STAIRS_MOTION_SCENE
+              data:
+                transition: 5
+
+        - conditions: "{{ trigger.id == 'stairs_no_motion' }}"
+          sequence:
+            - if: 
+              - "{{ is_state(tv_state, 'on') }}"
+              then:
+                - service: scene.turn_on
+                  target:
+                    entity_id: *STAIRS_TV_ON_SCENE
+                  data:
+                    transition: 5
+              else:
+                - service: light.turn_off
+                  target:
+                    entity_id: *STAIRS_LIGHT
