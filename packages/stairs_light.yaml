@@ -5,7 +5,7 @@ automation:
   variables:
     stairs_motion_occupancy: &STAIRS_MOTION "binary_sensor.stairs_motion_occupancy"
     tv_state: &TV_STATE "media_player.lg_webos_tv_oled65b6p"
-    stairs_light: &STAIRS_LIGHT "light.stairs_light"
+    stairs_light: &STAIRS_LIGHT "light.stairs"
     stairs_motion_scene: &STAIRS_MOTION_SCENE "scene.stairs_motion"
     stairs_tv_on_scene: &STAIRS_TV_ON_SCENE "scene.stairs_tv_on"
 
