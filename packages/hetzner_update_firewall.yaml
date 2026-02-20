@@ -1,0 +1,60 @@
+# A sensor for to get my IP address
+sensor:
+  - platform: rest
+    name: Public IP
+    resource: https://api.ipify.org?format=json
+    value_template: "{{ value_json.ip }}"
+    scan_interval: 300  # 5 minutes
+
+# A rest command to update the firewall rules in Hetzner Cloud
+rest_command:
+  hetzner_update_firewall_home_ip:
+    url: "https://api.hetzner.cloud/v1/firewalls/{{ firewall_id }}/actions/set_rules"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ token }}"
+      Content-Type: "application/json"
+    payload: >
+      {
+        "rules": [
+          {
+            "description": "Allow SSH from home IP",
+            "direction": "in",
+            "protocol": "tcp",
+            "port": "22",
+            "source_ips": ["{{ ip }}/32"]
+          },
+          {
+            "description": "Allow Netdata from home IP",
+            "direction": "in",
+            "protocol": "tcp",
+            "port": "19999",
+            "source_ips": ["{{ ip }}/32"]
+          }
+        ]
+      }
+
+# An automation to trigger the firewall update when the public IP changes
+automation:
+  - id: hetzner_firewall_follow_home_ip
+    alias: "Hetzner firewall follows home IP"
+    mode: single
+    trigger:
+      - platform: state
+        entity_id: sensor.public_ip
+      - platform: homeassistant
+        event: start
+    condition:
+      - condition: template
+        value_template: >
+          {{ trigger.to_state.state not in ['unknown','unavailable','none',''] }}
+    action:
+      - service: rest_command.hetzner_update_firewall_home_ip
+        data:
+          ip: "{{ states('sensor.public_ip') }}"
+          token: !secret hetzner_api_token
+          firewall_id: !secret hetzner_firewall_id
+      - service: logbook.log
+        data:
+          name: "Hetzner Firewall Update"
+          message: "Updated firewall rules with new IP: {{ states('sensor.public_ip') }}"
