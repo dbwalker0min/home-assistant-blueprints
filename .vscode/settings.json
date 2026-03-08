@@ -2,6 +2,7 @@
   "yaml.customTags": [
     "!input scalar",
     "!input mapping",
-    "!input sequence"
+    "!input sequence",
+    "!secret"
   ]
 }

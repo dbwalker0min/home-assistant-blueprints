@@ -72,7 +72,9 @@ blueprint:
         Specify the people for whom the front door should auto-open when they arrive home.
       selector:
         entity:
-          domain: person
+          domain: 
+            - person
+            - device_tracker
           multiple: true
 
     auto_relock_delay:
